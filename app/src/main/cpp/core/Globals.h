@@ -104,9 +104,4 @@ extern float playerZ;
 
 extern float timeOfDay;
 
-struct InventorySlot {
-    uint8_t blockType;
-    int count;
-};
-extern InventorySlot hotbar[5];
-extern int selectedHotbarSlot;
+

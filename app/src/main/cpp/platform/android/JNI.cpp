@@ -3,6 +3,7 @@
 #include <android/native_window_jni.h>
 #include "core/Globals.h"
 #include "core/Logger.h"
+#include "gameplay/Inventory.h"
 #include "player/Physics.h"
 #include "gameplay/Raycast.h"
 
@@ -29,6 +30,7 @@ Java_com_example_MainActivity_nativeSurfaceCreated(JNIEnv* env, jclass clazz, jo
     }
     
     if (!isRunning) {
+        initInventory();
         isRunning = true;
         renderThread = std::thread(renderLoop);
         workerThread = std::thread(chunkWorkerLoop);
@@ -62,21 +64,40 @@ Java_com_example_MainActivity_nativeSurfaceDestroyed(JNIEnv* env, jclass clazz) 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_MainActivity_nativeCameraLook(JNIEnv* env, jclass clazz, jfloat dx, jfloat dy) {
     float multY = settingInvertY ? -1.0f : 1.0f;
-    cameraLookX += dx * 0.5f * settingSensitivity;
-    cameraLookY -= dy * 0.5f * settingSensitivity * multY;
+    if (!isInventoryOpen) {
+        cameraLookX += dx * 0.5f * settingSensitivity;
+        cameraLookY -= dy * 0.5f * settingSensitivity * multY;
+    }
     if (cameraLookY > 89.0f) cameraLookY = 89.0f;
     if (cameraLookY < -89.0f) cameraLookY = -89.0f;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_MainActivity_nativeMoveJoystick(JNIEnv* env, jclass clazz, jfloat x, jfloat y) {
-    inputMoveX = x;
-    inputMoveY = y;
+    if (!isInventoryOpen) {
+        inputMoveX = x;
+        inputMoveY = y;
+    } else {
+        inputMoveX = 0.0f;
+        inputMoveY = 0.0f;
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_MainActivity_nativeAction(JNIEnv* env, jclass clazz, jstring action) {
     const char *actionStr = env->GetStringUTFChars(action, nullptr);
+    if (isInventoryOpen) {
+        // Only allow select slot when inventory is open, or nothing
+        if (strncmp(actionStr, "select_slot_", 12) == 0) {
+            int slot = actionStr[12] - '0';
+            if (slot >= 0 && slot < HOTBAR_SIZE) {
+                selectedHotbarSlot = slot;
+            }
+        }
+        env->ReleaseStringUTFChars(action, actionStr);
+        return;
+    }
+    
     if (strcmp(actionStr, "jump_down") == 0) {
         inputJump = true;
     } else if (strcmp(actionStr, "jump_up") == 0) {
@@ -100,7 +121,7 @@ Java_com_example_MainActivity_nativeAction(JNIEnv* env, jclass clazz, jstring ac
         performRaycast(false);
     } else if (strncmp(actionStr, "select_slot_", 12) == 0) {
         int slot = actionStr[12] - '0';
-        if (slot >= 0 && slot < 5) {
+        if (slot >= 0 && slot < HOTBAR_SIZE) {
             selectedHotbarSlot = slot;
         }
     }
@@ -124,4 +145,31 @@ Java_com_example_MainActivity_nativeUpdateSettings(JNIEnv* env, jclass clazz, jf
     MeshRadius = renderDist + 1;
     LoadRadius = renderDist + 2;
     UnloadRadius = renderDist + 4;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_example_MainActivity_nativeGetInventory(JNIEnv* env, jclass clazz) {
+    jintArray result = env->NewIntArray(INVENTORY_SIZE * 2);
+    jint fill[INVENTORY_SIZE * 2];
+    for (int i = 0; i < INVENTORY_SIZE; i++) {
+        fill[i*2] = inventory[i].itemId;
+        fill[i*2+1] = inventory[i].count;
+    }
+    env->SetIntArrayRegion(result, 0, INVENTORY_SIZE * 2, fill);
+    return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSwapSlots(JNIEnv* env, jclass clazz, jint slotA, jint slotB) {
+    swapSlots(slotA, slotB);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_MainActivity_nativeGetSelectedHotbarSlot(JNIEnv* env, jclass clazz) {
+    return selectedHotbarSlot;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSetInventoryOpen(JNIEnv* env, jclass clazz, jboolean open) {
+    isInventoryOpen = open;
 }

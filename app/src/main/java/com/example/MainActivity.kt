@@ -51,15 +51,20 @@ class AppState {
 class MainActivity : ComponentActivity() {
   private var currentAppState by mutableStateOf(AppState.MAIN_MENU)
   lateinit var settings: SettingsManager
+  lateinit var musicManager: MusicManager
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     settings = SettingsManager(this)
     settings.updateNative()
+    musicManager = MusicManager(this)
 
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            musicManager.initAndPlay()
+        }
         when (currentAppState) {
             AppState.MAIN_MENU -> MainMenu(
                 onPlayClick = { currentAppState = AppState.GAMEPLAY },
@@ -68,8 +73,25 @@ class MainActivity : ComponentActivity() {
             AppState.SETTINGS -> SettingsMenu(settings, onBack = { currentAppState = AppState.MAIN_MENU })
             AppState.GAMEPLAY -> GameplayScreen(settings, onBack = { currentAppState = AppState.MAIN_MENU })
         }
+        val isGenerating by musicManager.isGenerating.collectAsState()
+        val hasError by musicManager.hasError.collectAsState()
+        if (isGenerating) {
+            Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
+                Text("AI is generating background music (Lyria)...", color = Color.White, fontSize = 12.sp, modifier = Modifier.background(Color.Black.copy(alpha=0.6f), RoundedCornerShape(4.dp)).padding(8.dp))
+            }
+        }
+        if (hasError != null) {
+            Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
+                Text(hasError!!, color = Color.Red, fontSize = 12.sp, modifier = Modifier.background(Color.Black.copy(alpha=0.8f), RoundedCornerShape(4.dp)).padding(8.dp))
+            }
+        }
       }
     }
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    musicManager.stop()
   }
 
   external fun stringFromJNI(): String
@@ -86,6 +108,10 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeCameraLook(dx: Float, dy: Float)
     @JvmStatic external fun nativeMoveJoystick(x: Float, y: Float)
     @JvmStatic external fun nativeAction(action: String)
+    @JvmStatic external fun nativeGetInventory(): IntArray
+    @JvmStatic external fun nativeSwapSlots(slotA: Int, slotB: Int)
+    @JvmStatic external fun nativeGetSelectedHotbarSlot(): Int
+    @JvmStatic external fun nativeSetInventoryOpen(open: Boolean)
     @JvmStatic external fun nativeUpdateSettings(fov: Float, sensitivity: Float, invertY: Boolean, renderDist: Int, graphicsQuality: Int, shadows: Boolean, clouds: Boolean, fog: Boolean, brightness: Float)
   }
 }
@@ -234,6 +260,7 @@ fun SettingsMenu(settings: SettingsManager, onBack: () -> Unit) {
 @Composable
 fun GameplayScreen(settings: SettingsManager, onBack: () -> Unit) {
     var debugMode by remember { mutableStateOf(false) }
+    var showInventory by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -261,22 +288,127 @@ fun GameplayScreen(settings: SettingsManager, onBack: () -> Unit) {
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
-                        MainActivity.nativeCameraLook(dragAmount.x, dragAmount.y)
+                        if (!showInventory) {
+                            MainActivity.nativeCameraLook(dragAmount.x, dragAmount.y)
+                        }
                     }
                 }
         )
 
-        HUD(
-            settings = settings,
-            onPause = onBack,
-            debugMode = debugMode,
-            onToggleDebug = { debugMode = !debugMode; MainActivity.nativeAction("debug_fly") }
-        )
+        if (!showInventory) {
+            HUD(
+                settings = settings,
+                onPause = onBack,
+                debugMode = debugMode,
+                onToggleDebug = { debugMode = !debugMode; MainActivity.nativeAction("debug_fly") },
+                onToggleInventory = { showInventory = true; MainActivity.nativeSetInventoryOpen(true) }
+            )
+        } else {
+            InventoryScreen(
+                onClose = { showInventory = false; MainActivity.nativeSetInventoryOpen(false) }
+            )
+        }
     }
 }
 
 @Composable
-fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onToggleDebug: () -> Unit) {
+fun InventoryScreen(onClose: () -> Unit) {
+    var inventoryState by remember { mutableStateOf(MainActivity.nativeGetInventory()) }
+    var selectedSlotIndex by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(Unit) {
+        while(true) {
+            kotlinx.coroutines.delay(100)
+            inventoryState = MainActivity.nativeGetInventory()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)).pointerInput(Unit) {}) {
+        Column(
+            modifier = Modifier.align(Alignment.Center).background(Color(0xFF222222), RoundedCornerShape(8.dp)).padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("INVENTORY", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+
+            // Main Inventory (27 slots: 3 rows of 9)
+            for (row in 0 until 3) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 4.dp)) {
+                    for (col in 0 until 9) {
+                        val slotIndex = row * 9 + col
+                        InventorySlotUI(slotIndex, inventoryState, selectedSlotIndex) {
+                            if (selectedSlotIndex == null) {
+                                selectedSlotIndex = slotIndex
+                            } else {
+                                MainActivity.nativeSwapSlots(selectedSlotIndex!!, slotIndex)
+                                selectedSlotIndex = null
+                                inventoryState = MainActivity.nativeGetInventory()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Hotbar (9 slots)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (col in 0 until 9) {
+                    val slotIndex = 27 + col
+                    InventorySlotUI(slotIndex, inventoryState, selectedSlotIndex) {
+                        if (selectedSlotIndex == null) {
+                            selectedSlotIndex = slotIndex
+                        } else {
+                            MainActivity.nativeSwapSlots(selectedSlotIndex!!, slotIndex)
+                            selectedSlotIndex = null
+                            inventoryState = MainActivity.nativeGetInventory()
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(onClick = onClose, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) {
+                Text("CLOSE", color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun InventorySlotUI(slotIndex: Int, inventoryState: IntArray, selectedSlotIndex: Int?, onClick: () -> Unit) {
+    val itemId = inventoryState[slotIndex * 2]
+    val count = inventoryState[slotIndex * 2 + 1]
+    val isSelected = selectedSlotIndex == slotIndex
+
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .background(if (isSelected) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+            .border(2.dp, if (isSelected) Color.Yellow else Color.Gray, RoundedCornerShape(4.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = { onClick() })
+            }
+    ) {
+        if (itemId > 0) {
+            val color = when(itemId) {
+                1 -> Color(0xFF2D912D) // Grass
+                2 -> Color(0xFF785032) // Dirt
+                3 -> Color(0xFF828282) // Stone
+                4 -> Color(0xFF6E4628) // Wood
+                5 -> Color(0xFF1E641E) // Leaves
+                7 -> Color(0xFFA07850) // Planks
+                8 -> Color(0xFFE6D296) // Sand
+                else -> Color.Gray
+            }
+            Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
+            Text(text = "$count", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp))
+        }
+    }
+}
+
+@Composable
+fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onToggleDebug: () -> Unit, onToggleInventory: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         // Top Bar
         Row(
@@ -304,6 +436,17 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
                     .background(Color.Black.copy(alpha = 0.3f), CircleShape)
             ) {
                 Icon(Icons.Filled.Settings, contentDescription = "Debug", tint = if (debugMode) Color.Green else Color.White)
+            }
+            
+            Spacer(modifier = Modifier.weight(1f))
+
+            IconButton(
+                onClick = onToggleInventory,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+            ) {
+                Icon(Icons.Filled.Menu, contentDescription = "Inventory", tint = Color.White)
             }
         }
 
@@ -358,32 +501,63 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
         }
 
         // Hotbar
-        var selectedSlot by remember { mutableIntStateOf(0) }
+        var inventoryState by remember { mutableStateOf(MainActivity.nativeGetInventory()) }
+        var selectedSlot by remember { mutableIntStateOf(MainActivity.nativeGetSelectedHotbarSlot()) }
+        
+        // Polling inventory state
+        LaunchedEffect(Unit) {
+            while(true) {
+                kotlinx.coroutines.delay(100)
+                inventoryState = MainActivity.nativeGetInventory()
+                selectedSlot = MainActivity.nativeGetSelectedHotbarSlot()
+            }
+        }
+
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            for (i in 0 until 5) {
+            for (i in 0 until 9) {
+                val invIndex = 27 + i
+                val itemId = inventoryState[invIndex * 2]
+                val count = inventoryState[invIndex * 2 + 1]
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(40.dp)
                         .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                         .border(2.dp, if (i == selectedSlot) Color.White else Color.Transparent, RoundedCornerShape(4.dp))
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onPress = {
-                                    selectedSlot = i
                                     MainActivity.nativeAction("select_slot_$i")
                                 }
                             )
                         }
-                )
+                ) {
+                    if (itemId > 0) {
+                        // Very simple display: Text showing item ID (e.g. Grass) and count
+                        // Real textures would require loading the atlas into Compose, but we can do a simple colored block or text for now.
+                        val color = when(itemId) {
+                            1 -> Color(0xFF2D912D) // Grass
+                            2 -> Color(0xFF785032) // Dirt
+                            3 -> Color(0xFF828282) // Stone
+                            4 -> Color(0xFF6E4628) // Wood
+                            5 -> Color(0xFF1E641E) // Leaves
+                            7 -> Color(0xFFA07850) // Planks
+                            8 -> Color(0xFFE6D296) // Sand
+                            else -> Color.Gray
+                        }
+                        Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
+                        Text(text = "$count", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp))
+                    }
+                }
             }
         }
     }
 }
+
 
 @Composable
 fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, onDown: () -> Unit = {}, onUp: () -> Unit = {}) {

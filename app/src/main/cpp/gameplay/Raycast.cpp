@@ -1,5 +1,6 @@
 #include "Raycast.h"
 #include "../core/Globals.h"
+#include "Inventory.h"
 #include "../world/World.h"
 
 void performRaycast(bool placeBlock) {
@@ -53,36 +54,28 @@ void performRaycast(bool placeBlock) {
                                 bool intersectY = abs((playerY + pSize.y/2.0f) - (pby + 0.5f)) * 2.0f < (pSize.y + 1.0f);
                                 bool intersectZ = abs(playerZ - (pbz + 0.5f)) * 2.0f < (pSize.z + 1.0f);
                                 if (!(intersectX && intersectY && intersectZ)) {
-                                    if (hotbar[selectedHotbarSlot].count > 0) {
-                                        chunks[{pcx, pcz}].data[plx][pby][plz] = hotbar[selectedHotbarSlot].blockType;
+                                    uint16_t selectedItem = inventory[selectedHotbarSlot + 27].itemId;
+                                    if (selectedItem != 0 && getBlockMetadata(selectedItem).placeable) {
+                                        chunks[{pcx, pcz}].data[plx][pby][plz] = selectedItem;
                                         chunks[{pcx, pcz}].isDirty = true;
                                         if (plx == 0 && chunks.find({pcx-1, pcz}) != chunks.end()) chunks[{pcx-1, pcz}].isDirty = true;
                                         if (plx == CHUNK_SIZE-1 && chunks.find({pcx+1, pcz}) != chunks.end()) chunks[{pcx+1, pcz}].isDirty = true;
                                         if (plz == 0 && chunks.find({pcx, pcz-1}) != chunks.end()) chunks[{pcx, pcz-1}].isDirty = true;
                                         if (plz == CHUNK_SIZE-1 && chunks.find({pcx, pcz+1}) != chunks.end()) chunks[{pcx, pcz+1}].isDirty = true;
-                                        hotbar[selectedHotbarSlot].count--;
+                                        consumeItem(selectedHotbarSlot + 27, 1);
                                     }
                                 }
                             }
                         }
                     } else {
-                        chunks[{cx, cz}].data[lx][by][lz] = 0;
-                        chunks[{cx, cz}].isDirty = true;
-                        if (lx == 0 && chunks.find({cx-1, cz}) != chunks.end()) chunks[{cx-1, cz}].isDirty = true;
-                        if (lx == CHUNK_SIZE-1 && chunks.find({cx+1, cz}) != chunks.end()) chunks[{cx+1, cz}].isDirty = true;
-                        if (lz == 0 && chunks.find({cx, cz-1}) != chunks.end()) chunks[{cx, cz-1}].isDirty = true;
-                        if (lz == CHUNK_SIZE-1 && chunks.find({cx, cz+1}) != chunks.end()) chunks[{cx, cz+1}].isDirty = true;
-                        
                         // Try to add broken block to inventory
-                        for (int k = 0; k < 5; k++) {
-                            if (hotbar[k].blockType == currentBlock) {
-                                hotbar[k].count++;
-                                break;
-                            } else if (hotbar[k].count == 0) {
-                                hotbar[k].blockType = currentBlock;
-                                hotbar[k].count = 1;
-                                break;
-                            }
+                        if (addItem(currentBlock, 1)) {
+                            chunks[{cx, cz}].data[lx][by][lz] = 0;
+                            chunks[{cx, cz}].isDirty = true;
+                            if (lx == 0 && chunks.find({cx-1, cz}) != chunks.end()) chunks[{cx-1, cz}].isDirty = true;
+                            if (lx == CHUNK_SIZE-1 && chunks.find({cx+1, cz}) != chunks.end()) chunks[{cx+1, cz}].isDirty = true;
+                            if (lz == 0 && chunks.find({cx, cz-1}) != chunks.end()) chunks[{cx, cz-1}].isDirty = true;
+                            if (lz == CHUNK_SIZE-1 && chunks.find({cx, cz+1}) != chunks.end()) chunks[{cx, cz+1}].isDirty = true;
                         }
                     }
                     workerCV.notify_one();

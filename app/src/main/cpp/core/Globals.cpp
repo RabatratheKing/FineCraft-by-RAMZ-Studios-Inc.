@@ -46,14 +46,7 @@ float playerZ = 0.0f;
 
 float timeOfDay = 0.0f;
 
-InventorySlot hotbar[5] = {
-    {1, 64}, // Grass
-    {2, 64}, // Dirt
-    {3, 64}, // Stone
-    {4, 64}, // Wood
-    {8, 64}  // Sand
-};
-int selectedHotbarSlot = 0;
+
 
 int LoadRadius = 8;
 int MeshRadius = 6;
