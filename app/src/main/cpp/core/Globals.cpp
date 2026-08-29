@@ -62,3 +62,5 @@ bool settingShadows = true;
 bool settingClouds = true;
 bool settingFog = true;
 float settingBrightness = 1.0f;
+
+int worldSeed = 123456;

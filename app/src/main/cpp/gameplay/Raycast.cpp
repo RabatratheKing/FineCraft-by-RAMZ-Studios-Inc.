@@ -58,6 +58,7 @@ void performRaycast(bool placeBlock) {
                                     if (selectedItem != 0 && getBlockMetadata(selectedItem).placeable) {
                                         chunks[{pcx, pcz}].data[plx][pby][plz] = selectedItem;
                                         chunks[{pcx, pcz}].isDirty = true;
+                                        chunks[{pcx, pcz}].isModified = true;
                                         if (plx == 0 && chunks.find({pcx-1, pcz}) != chunks.end()) chunks[{pcx-1, pcz}].isDirty = true;
                                         if (plx == CHUNK_SIZE-1 && chunks.find({pcx+1, pcz}) != chunks.end()) chunks[{pcx+1, pcz}].isDirty = true;
                                         if (plz == 0 && chunks.find({pcx, pcz-1}) != chunks.end()) chunks[{pcx, pcz-1}].isDirty = true;
@@ -72,6 +73,7 @@ void performRaycast(bool placeBlock) {
                         if (addItem(currentBlock, 1)) {
                             chunks[{cx, cz}].data[lx][by][lz] = 0;
                             chunks[{cx, cz}].isDirty = true;
+                            chunks[{cx, cz}].isModified = true;
                             if (lx == 0 && chunks.find({cx-1, cz}) != chunks.end()) chunks[{cx-1, cz}].isDirty = true;
                             if (lx == CHUNK_SIZE-1 && chunks.find({cx+1, cz}) != chunks.end()) chunks[{cx+1, cz}].isDirty = true;
                             if (lz == 0 && chunks.find({cx, cz-1}) != chunks.end()) chunks[{cx, cz-1}].isDirty = true;

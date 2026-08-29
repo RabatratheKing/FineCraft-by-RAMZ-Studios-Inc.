@@ -2,6 +2,7 @@
 #include <string>
 #include <android/native_window_jni.h>
 #include "core/Globals.h"
+#include "world/SaveManager.h"
 #include "core/Logger.h"
 #include "gameplay/Inventory.h"
 #include "player/Physics.h"
@@ -172,4 +173,68 @@ Java_com_example_MainActivity_nativeGetSelectedHotbarSlot(JNIEnv* env, jclass cl
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_MainActivity_nativeSetInventoryOpen(JNIEnv* env, jclass clazz, jboolean open) {
     isInventoryOpen = open;
+}
+
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeInitSave(JNIEnv* env, jclass clazz, jstring path) {
+    const char* pathStr = env->GetStringUTFChars(path, nullptr);
+    SaveManager::Init(pathStr);
+    env->ReleaseStringUTFChars(path, pathStr);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_MainActivity_nativeHasSave(JNIEnv* env, jclass clazz) {
+    return SaveManager::HasSave();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeLoadGame(JNIEnv* env, jclass clazz) {
+    SaveManager::LoadGame();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeNewGame(JNIEnv* env, jclass clazz) {
+    SaveManager::NewGame();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSaveGame(JNIEnv* env, jclass clazz) {
+    SaveManager::SaveGame();
+}
+
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSwapCraftingSlot(JNIEnv* env, jclass clazz, jint invSlot, jint craftSlot) {
+    swapCraftingSlot(invSlot, craftSlot);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSwapCraftingToCrafting(JNIEnv* env, jclass clazz, jint craftSlotA, jint craftSlotB) {
+    swapCraftingToCrafting(craftSlotA, craftSlotB);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeTakeCraftingOutput(JNIEnv* env, jclass clazz) {
+    takeCraftingOutput();
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_example_MainActivity_nativeGetCraftingGrid(JNIEnv* env, jclass clazz) {
+    jintArray result = env->NewIntArray(4 * 2);
+    jint temp[8];
+    for (int i = 0; i < 4; i++) {
+        temp[i*2] = craftingGrid[i].itemId;
+        temp[i*2+1] = craftingGrid[i].count;
+    }
+    env->SetIntArrayRegion(result, 0, 8, temp);
+    return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_example_MainActivity_nativeGetCraftingOutput(JNIEnv* env, jclass clazz) {
+    jintArray result = env->NewIntArray(2);
+    jint temp[2] = { craftingOutput.itemId, craftingOutput.count };
+    env->SetIntArrayRegion(result, 0, 2, temp);
+    return result;
 }

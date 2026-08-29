@@ -61,7 +61,7 @@ void generateChunkData(int cx, int cz, uint8_t tempData[CHUNK_SIZE][CHUNK_HEIGHT
         }
     }
     
-    int seed = (cx * 73856093) ^ (cz * 19349663);
+    int seed = worldSeed ^ (cx * 73856093) ^ (cz * 19349663);
     
     // Trees - firmly grounded on terrain surface
     if ((seed % 100) < 15) {

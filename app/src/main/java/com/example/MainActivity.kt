@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     settings = SettingsManager(this)
     settings.updateNative()
+    MainActivity.nativeInitSave(this.filesDir.absolutePath)
     musicManager = MusicManager(this)
 
     enableEdgeToEdge()
@@ -67,11 +68,21 @@ class MainActivity : ComponentActivity() {
         }
         when (currentAppState) {
             AppState.MAIN_MENU -> MainMenu(
-                onPlayClick = { currentAppState = AppState.GAMEPLAY },
+                onContinueClick = { 
+                    MainActivity.nativeLoadGame()
+                    currentAppState = AppState.GAMEPLAY 
+                },
+                onNewGameClick = { 
+                    MainActivity.nativeNewGame()
+                    currentAppState = AppState.GAMEPLAY 
+                },
                 onSettingsClick = { currentAppState = AppState.SETTINGS }
             )
             AppState.SETTINGS -> SettingsMenu(settings, onBack = { currentAppState = AppState.MAIN_MENU })
-            AppState.GAMEPLAY -> GameplayScreen(settings, onBack = { currentAppState = AppState.MAIN_MENU })
+            AppState.GAMEPLAY -> GameplayScreen(settings, onBack = { 
+                MainActivity.nativeSaveGame()
+                currentAppState = AppState.MAIN_MENU 
+            })
         }
         val isGenerating by musicManager.isGenerating.collectAsState()
         val hasError by musicManager.hasError.collectAsState()
@@ -86,6 +97,13 @@ class MainActivity : ComponentActivity() {
             }
         }
       }
+    }
+  }
+
+    override fun onPause() {
+    super.onPause()
+    if (currentAppState == AppState.GAMEPLAY) {
+        MainActivity.nativeSaveGame()
     }
   }
 
@@ -113,11 +131,21 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeGetSelectedHotbarSlot(): Int
     @JvmStatic external fun nativeSetInventoryOpen(open: Boolean)
     @JvmStatic external fun nativeUpdateSettings(fov: Float, sensitivity: Float, invertY: Boolean, renderDist: Int, graphicsQuality: Int, shadows: Boolean, clouds: Boolean, fog: Boolean, brightness: Float)
+    @JvmStatic external fun nativeInitSave(path: String)
+    @JvmStatic external fun nativeHasSave(): Boolean
+    @JvmStatic external fun nativeLoadGame()
+    @JvmStatic external fun nativeNewGame()
+    @JvmStatic external fun nativeSaveGame()
+    @JvmStatic external fun nativeSwapCraftingSlot(invSlot: Int, craftSlot: Int)
+    @JvmStatic external fun nativeSwapCraftingToCrafting(craftSlotA: Int, craftSlotB: Int)
+    @JvmStatic external fun nativeTakeCraftingOutput()
+    @JvmStatic external fun nativeGetCraftingGrid(): IntArray
+    @JvmStatic external fun nativeGetCraftingOutput(): IntArray
   }
 }
 
 @Composable
-fun MainMenu(onPlayClick: () -> Unit, onSettingsClick: () -> Unit) {
+fun MainMenu(onContinueClick: () -> Unit, onNewGameClick: () -> Unit, onSettingsClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -146,16 +174,31 @@ fun MainMenu(onPlayClick: () -> Unit, onSettingsClick: () -> Unit) {
                 modifier = Modifier.padding(bottom = 64.dp)
             )
             
+            val hasSave = remember { MainActivity.nativeHasSave() }
+            if (hasSave) {
+                Button(
+                    onClick = onContinueClick,
+                    modifier = Modifier
+                        .width(280.dp)
+                        .height(56.dp)
+                        .padding(bottom = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("CONTINUE", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                }
+            }
+            
             Button(
-                onClick = onPlayClick,
+                onClick = onNewGameClick,
                 modifier = Modifier
                     .width(280.dp)
                     .height(56.dp)
                     .padding(bottom = 8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E)),
+                colors = ButtonDefaults.buttonColors(containerColor = if (hasSave) Color(0xFF475569) else Color(0xFF22C55E)),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text("PLAY", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                Text("NEW WORLD", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             }
             
             Button(
@@ -313,13 +356,18 @@ fun GameplayScreen(settings: SettingsManager, onBack: () -> Unit) {
 
 @Composable
 fun InventoryScreen(onClose: () -> Unit) {
-    var inventoryState by remember { mutableStateOf(MainActivity.nativeGetInventory()) }
+    var inventoryState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetInventory()) }
+    var craftingGridState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetCraftingGrid()) }
+    var craftingOutputState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetCraftingOutput()) }
     var selectedSlotIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedCraftingSlot by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(Unit) {
         while(true) {
             kotlinx.coroutines.delay(100)
             inventoryState = MainActivity.nativeGetInventory()
+            craftingGridState = MainActivity.nativeGetCraftingGrid()
+            craftingOutputState = MainActivity.nativeGetCraftingOutput()
         }
     }
 
@@ -328,7 +376,72 @@ fun InventoryScreen(onClose: () -> Unit) {
             modifier = Modifier.align(Alignment.Center).background(Color(0xFF222222), RoundedCornerShape(8.dp)).padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("INVENTORY", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+            Text("CRAFTING", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+
+            // CRAFTING SECTION
+            Row(modifier = Modifier.padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (row in 0 until 2) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            for (col in 0 until 2) {
+                                val craftSlot = row * 2 + col
+                                InventorySlotUI(craftSlot, craftingGridState, if(selectedCraftingSlot == craftSlot) craftSlot else null) {
+                                    if (selectedSlotIndex == null && selectedCraftingSlot == null) {
+                                        selectedCraftingSlot = craftSlot
+                                    } else if (selectedCraftingSlot != null) {
+                                        MainActivity.nativeSwapCraftingToCrafting(selectedCraftingSlot!!, craftSlot)
+                                        selectedCraftingSlot = null
+                                    } else if (selectedSlotIndex != null) {
+                                        MainActivity.nativeSwapCraftingSlot(selectedSlotIndex!!, craftSlot)
+                                        selectedSlotIndex = null
+                                    }
+                                    inventoryState = MainActivity.nativeGetInventory()
+                                    craftingGridState = MainActivity.nativeGetCraftingGrid()
+                                    craftingOutputState = MainActivity.nativeGetCraftingOutput()
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Craft", tint = Color.White, modifier = Modifier.padding(horizontal = 16.dp))
+                
+                // Output Slot
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .border(2.dp, Color.Gray, RoundedCornerShape(4.dp))
+                        .pointerInput(Unit) {
+                            detectTapGestures(onPress = {
+                                MainActivity.nativeTakeCraftingOutput()
+                                inventoryState = MainActivity.nativeGetInventory()
+                                craftingGridState = MainActivity.nativeGetCraftingGrid()
+                                craftingOutputState = MainActivity.nativeGetCraftingOutput()
+                            })
+                        }
+                ) {
+                    val outId = craftingOutputState[0]
+                    val outCount = craftingOutputState[1]
+                    if (outId > 0) {
+                        val color = when(outId) {
+                            1 -> Color(0xFF2D912D)
+                            2 -> Color(0xFF785032)
+                            3 -> Color(0xFF828282)
+                            4 -> Color(0xFF6E4628)
+                            5 -> Color(0xFF1E641E)
+                            7 -> Color(0xFFA07850)
+                            8 -> Color(0xFFE6D296)
+                            9 -> Color(0xFF5C3A21)
+                            else -> Color.Gray
+                        }
+                        Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
+                        Text(text = "$outCount", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp))
+                    }
+                }
+            }
+
+            Text("INVENTORY", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
 
             // Main Inventory (27 slots: 3 rows of 9)
             for (row in 0 until 3) {
@@ -336,12 +449,18 @@ fun InventoryScreen(onClose: () -> Unit) {
                     for (col in 0 until 9) {
                         val slotIndex = row * 9 + col
                         InventorySlotUI(slotIndex, inventoryState, selectedSlotIndex) {
-                            if (selectedSlotIndex == null) {
+                            if (selectedSlotIndex == null && selectedCraftingSlot == null) {
                                 selectedSlotIndex = slotIndex
-                            } else {
+                            } else if (selectedSlotIndex != null) {
                                 MainActivity.nativeSwapSlots(selectedSlotIndex!!, slotIndex)
                                 selectedSlotIndex = null
                                 inventoryState = MainActivity.nativeGetInventory()
+                            } else if (selectedCraftingSlot != null) {
+                                MainActivity.nativeSwapCraftingSlot(slotIndex, selectedCraftingSlot!!)
+                                selectedCraftingSlot = null
+                                inventoryState = MainActivity.nativeGetInventory()
+                                craftingGridState = MainActivity.nativeGetCraftingGrid()
+                                craftingOutputState = MainActivity.nativeGetCraftingOutput()
                             }
                         }
                     }
@@ -399,6 +518,7 @@ fun InventorySlotUI(slotIndex: Int, inventoryState: IntArray, selectedSlotIndex:
                 5 -> Color(0xFF1E641E) // Leaves
                 7 -> Color(0xFFA07850) // Planks
                 8 -> Color(0xFFE6D296) // Sand
+                9 -> Color(0xFF5C3A21) // Sticks
                 else -> Color.Gray
             }
             Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
@@ -501,7 +621,7 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
         }
 
         // Hotbar
-        var inventoryState by remember { mutableStateOf(MainActivity.nativeGetInventory()) }
+        var inventoryState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetInventory()) }
         var selectedSlot by remember { mutableIntStateOf(MainActivity.nativeGetSelectedHotbarSlot()) }
         
         // Polling inventory state
@@ -547,6 +667,7 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
                             5 -> Color(0xFF1E641E) // Leaves
                             7 -> Color(0xFFA07850) // Planks
                             8 -> Color(0xFFE6D296) // Sand
+                9 -> Color(0xFF5C3A21) // Sticks
                             else -> Color.Gray
                         }
                         Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))

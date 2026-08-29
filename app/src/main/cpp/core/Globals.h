@@ -61,6 +61,7 @@ struct Chunk {
     GLuint VBO = 0;
     int vertexCount = 0;
     bool isDirty = false;
+    bool isModified = false;
 };
 
 extern std::unordered_map<ChunkPos, Chunk, ChunkPosHash> chunks;
@@ -105,3 +106,5 @@ extern float playerZ;
 extern float timeOfDay;
 
 
+
+extern int worldSeed;
