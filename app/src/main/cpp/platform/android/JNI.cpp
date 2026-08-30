@@ -238,3 +238,19 @@ Java_com_example_MainActivity_nativeGetCraftingOutput(JNIEnv* env, jclass clazz)
     env->SetIntArrayRegion(result, 0, 2, temp);
     return result;
 }
+
+extern uint32_t atlasPixelsARGB[256 * 256];
+extern bool atlasGenerated;
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_example_MainActivity_nativeGetAtlasPixels(JNIEnv* env, jclass clazz) {
+    if (!atlasGenerated) return nullptr;
+    jintArray result = env->NewIntArray(256 * 256);
+    env->SetIntArrayRegion(result, 0, 256 * 256, (const jint*)atlasPixelsARGB);
+    return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_MainActivity_nativeMoveItems(JNIEnv* env, jclass clazz, jint srcType, jint srcSlot, jint destType, jint destSlot, jint amount) {
+    return moveItems(srcType, srcSlot, destType, destSlot, amount);
+}

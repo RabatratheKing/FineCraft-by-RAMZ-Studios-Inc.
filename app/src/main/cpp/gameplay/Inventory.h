@@ -34,4 +34,7 @@ void updateCraftingOutput();
 void takeCraftingOutput();
 void swapCraftingSlot(int invSlot, int craftSlot); // Moves item between inv and 2x2 grid
 void swapCraftingToCrafting(int craftSlotA, int craftSlotB);
+
+bool moveItems(int srcType, int srcSlot, int destType, int destSlot, int amount);
+
 void clearCraftingGrid(); // put items back to inventory if closed

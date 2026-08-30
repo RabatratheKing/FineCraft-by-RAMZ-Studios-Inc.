@@ -50,7 +50,12 @@ GLuint compileShader(GLenum type, const char* source) {
     return shader;
 }
 
+
+uint32_t atlasPixelsARGB[256 * 256];
+bool atlasGenerated = false;
+
 void generateTextureAtlas(GLuint& texID) {
+
     int size = 256;
     uint8_t* pixels = new uint8_t[size * size * 4];
     
@@ -107,9 +112,12 @@ void generateTextureAtlas(GLuint& texID) {
             pixels[p+1] = g;
             pixels[p+2] = b;
             pixels[p+3] = 255;
+            
+            atlasPixelsARGB[y * size + x] = (255 << 24) | (r << 16) | (g << 8) | b;
         }
     }
     
+    atlasGenerated = true;
     glGenTextures(1, &texID);
     glBindTexture(GL_TEXTURE_2D, texID);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);

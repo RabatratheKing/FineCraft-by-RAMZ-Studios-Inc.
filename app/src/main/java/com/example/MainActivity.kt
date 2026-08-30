@@ -8,6 +8,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,6 +36,16 @@ import androidx.compose.ui.platform.LocalConfiguration
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.Image
+import androidx.compose.material3.Slider
+import androidx.compose.material3.AlertDialog
+
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.roundToInt
@@ -122,6 +133,8 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeSurfaceCreated(surface: Surface)
     @JvmStatic external fun nativeSurfaceChanged(width: Int, height: Int)
     @JvmStatic external fun nativeSurfaceDestroyed()
+    @JvmStatic external fun nativeGetAtlasPixels(): IntArray?
+    @JvmStatic external fun nativeMoveItems(srcType: Int, srcSlot: Int, destType: Int, destSlot: Int, amount: Int): Boolean
     
     @JvmStatic external fun nativeCameraLook(dx: Float, dy: Float)
     @JvmStatic external fun nativeMoveJoystick(x: Float, y: Float)
@@ -217,6 +230,7 @@ fun MainMenu(onContinueClick: () -> Unit, onNewGameClick: () -> Unit, onSettings
 
 @Composable
 fun SettingsMenu(settings: SettingsManager, onBack: () -> Unit) {
+    BackHandler { onBack() }
     var fov by remember { mutableFloatStateOf(settings.fov) }
     var sensitivity by remember { mutableFloatStateOf(settings.sensitivity) }
     var renderDist by remember { mutableIntStateOf(settings.renderDist) }
@@ -304,6 +318,28 @@ fun SettingsMenu(settings: SettingsManager, onBack: () -> Unit) {
 fun GameplayScreen(settings: SettingsManager, onBack: () -> Unit) {
     var debugMode by remember { mutableStateOf(false) }
     var showInventory by remember { mutableStateOf(false) }
+    var atlasBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (atlasBitmap == null) {
+            val pixels = MainActivity.nativeGetAtlasPixels()
+            if (pixels != null) {
+                val bmp = android.graphics.Bitmap.createBitmap(pixels, 256, 256, android.graphics.Bitmap.Config.ARGB_8888)
+                atlasBitmap = bmp.asImageBitmap()
+            } else {
+                kotlinx.coroutines.delay(100)
+            }
+        }
+    }
+    
+    BackHandler {
+        if (showInventory) {
+            showInventory = false
+            MainActivity.nativeSetInventoryOpen(false)
+        } else {
+            onBack()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -344,23 +380,32 @@ fun GameplayScreen(settings: SettingsManager, onBack: () -> Unit) {
                 onPause = onBack,
                 debugMode = debugMode,
                 onToggleDebug = { debugMode = !debugMode; MainActivity.nativeAction("debug_fly") },
-                onToggleInventory = { showInventory = true; MainActivity.nativeSetInventoryOpen(true) }
+                onToggleInventory = { showInventory = true; MainActivity.nativeSetInventoryOpen(true) },
+                atlasBitmap = atlasBitmap
             )
         } else {
             InventoryScreen(
-                onClose = { showInventory = false; MainActivity.nativeSetInventoryOpen(false) }
+                onClose = { showInventory = false; MainActivity.nativeSetInventoryOpen(false) },
+                atlasBitmap = atlasBitmap
             )
         }
     }
 }
 
 @Composable
-fun InventoryScreen(onClose: () -> Unit) {
+fun InventoryScreen(onClose: () -> Unit, atlasBitmap: ImageBitmap?) {
     var inventoryState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetInventory()) }
     var craftingGridState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetCraftingGrid()) }
     var craftingOutputState by remember { mutableStateOf<IntArray>(MainActivity.nativeGetCraftingOutput()) }
     var selectedSlotIndex by remember { mutableStateOf<Int?>(null) }
     var selectedCraftingSlot by remember { mutableStateOf<Int?>(null) }
+    
+    var splitSourceSlot by remember { mutableStateOf<Int?>(null) }
+    var splitSourceType by remember { mutableStateOf<Int>(0) } // 0=inv, 1=craft
+    var showSplitDialog by remember { mutableStateOf(false) }
+    var splitAmount by remember { mutableIntStateOf(1) }
+    var splitDestSlot by remember { mutableStateOf<Int?>(null) }
+    var splitDestType by remember { mutableStateOf<Int>(0) }
 
     LaunchedEffect(Unit) {
         while(true) {
@@ -370,6 +415,44 @@ fun InventoryScreen(onClose: () -> Unit) {
             craftingOutputState = MainActivity.nativeGetCraftingOutput()
         }
     }
+    
+    if (showSplitDialog && splitSourceSlot != null && splitDestSlot != null) {
+        val srcCount = if (splitSourceType == 0) inventoryState[splitSourceSlot!! * 2 + 1] else craftingGridState[splitSourceSlot!! * 2 + 1]
+        
+        AlertDialog(
+            onDismissRequest = { showSplitDialog = false },
+            title = { Text("Split Stack", color = Color.White) },
+            text = {
+                Column {
+                    Text("Select amount to move:", color = Color.White)
+                    if (srcCount > 1) {
+                        Slider(
+                            value = splitAmount.toFloat(),
+                            onValueChange = { splitAmount = it.toInt() },
+                            valueRange = 1f..srcCount.toFloat(),
+                            steps = srcCount - 2
+                        )
+                    }
+                    Text("$splitAmount / $srcCount", color = Color.White)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showSplitDialog = false
+                    MainActivity.nativeMoveItems(splitSourceType, splitSourceSlot!!, splitDestType, splitDestSlot!!, splitAmount)
+                    inventoryState = MainActivity.nativeGetInventory()
+                    craftingGridState = MainActivity.nativeGetCraftingGrid()
+                    craftingOutputState = MainActivity.nativeGetCraftingOutput()
+                    selectedSlotIndex = null
+                    selectedCraftingSlot = null
+                }) { Text("Move") }
+            },
+            dismissButton = {
+                Button(onClick = { showSplitDialog = false }) { Text("Cancel") }
+            },
+            containerColor = Color.DarkGray
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)).pointerInput(Unit) {}) {
         Column(
@@ -377,7 +460,7 @@ fun InventoryScreen(onClose: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("CRAFTING", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-
+            
             // CRAFTING SECTION
             Row(modifier = Modifier.padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -385,20 +468,46 @@ fun InventoryScreen(onClose: () -> Unit) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             for (col in 0 until 2) {
                                 val craftSlot = row * 2 + col
-                                InventorySlotUI(craftSlot, craftingGridState, if(selectedCraftingSlot == craftSlot) craftSlot else null) {
-                                    if (selectedSlotIndex == null && selectedCraftingSlot == null) {
-                                        selectedCraftingSlot = craftSlot
-                                    } else if (selectedCraftingSlot != null) {
-                                        MainActivity.nativeSwapCraftingToCrafting(selectedCraftingSlot!!, craftSlot)
-                                        selectedCraftingSlot = null
-                                    } else if (selectedSlotIndex != null) {
-                                        MainActivity.nativeSwapCraftingSlot(selectedSlotIndex!!, craftSlot)
-                                        selectedSlotIndex = null
+                                val cId = craftingGridState[craftSlot * 2]
+                                val cCount = craftingGridState[craftSlot * 2 + 1]
+                                InventorySlotUI(
+                                    slotIndex = craftSlot, 
+                                    itemId = cId,
+                                    count = cCount,
+                                    isSelected = selectedCraftingSlot == craftSlot,
+                                    atlasBitmap = atlasBitmap,
+                                    onClick = {
+                                        if (selectedSlotIndex == null && selectedCraftingSlot == null) {
+                                            selectedCraftingSlot = craftSlot
+                                        } else if (selectedCraftingSlot != null) {
+                                            MainActivity.nativeSwapCraftingToCrafting(selectedCraftingSlot!!, craftSlot)
+                                            selectedCraftingSlot = null
+                                        } else if (selectedSlotIndex != null) {
+                                            MainActivity.nativeSwapCraftingSlot(selectedSlotIndex!!, craftSlot)
+                                            selectedSlotIndex = null
+                                        }
+                                        inventoryState = MainActivity.nativeGetInventory()
+                                        craftingGridState = MainActivity.nativeGetCraftingGrid()
+                                        craftingOutputState = MainActivity.nativeGetCraftingOutput()
+                                    },
+                                    onLongClick = {
+                                        if (selectedSlotIndex != null) {
+                                            splitSourceSlot = selectedSlotIndex
+                                            splitSourceType = 0
+                                            splitDestSlot = craftSlot
+                                            splitDestType = 1
+                                            splitAmount = 1
+                                            showSplitDialog = true
+                                        } else if (selectedCraftingSlot != null && selectedCraftingSlot != craftSlot) {
+                                            splitSourceSlot = selectedCraftingSlot
+                                            splitSourceType = 1
+                                            splitDestSlot = craftSlot
+                                            splitDestType = 1
+                                            splitAmount = 1
+                                            showSplitDialog = true
+                                        }
                                     }
-                                    inventoryState = MainActivity.nativeGetInventory()
-                                    craftingGridState = MainActivity.nativeGetCraftingGrid()
-                                    craftingOutputState = MainActivity.nativeGetCraftingOutput()
-                                }
+                                )
                             }
                         }
                     }
@@ -407,48 +516,88 @@ fun InventoryScreen(onClose: () -> Unit) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Craft", tint = Color.White, modifier = Modifier.padding(horizontal = 16.dp))
                 
                 // Output Slot
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                        .border(2.dp, Color.Gray, RoundedCornerShape(4.dp))
-                        .pointerInput(Unit) {
-                            detectTapGestures(onPress = {
-                                MainActivity.nativeTakeCraftingOutput()
-                                inventoryState = MainActivity.nativeGetInventory()
-                                craftingGridState = MainActivity.nativeGetCraftingGrid()
-                                craftingOutputState = MainActivity.nativeGetCraftingOutput()
-                            })
-                        }
-                ) {
-                    val outId = craftingOutputState[0]
-                    val outCount = craftingOutputState[1]
-                    if (outId > 0) {
-                        val color = when(outId) {
-                            1 -> Color(0xFF2D912D)
-                            2 -> Color(0xFF785032)
-                            3 -> Color(0xFF828282)
-                            4 -> Color(0xFF6E4628)
-                            5 -> Color(0xFF1E641E)
-                            7 -> Color(0xFFA07850)
-                            8 -> Color(0xFFE6D296)
-                            9 -> Color(0xFF5C3A21)
-                            else -> Color.Gray
-                        }
-                        Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
-                        Text(text = "$outCount", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp))
-                    }
-                }
+                val outId = craftingOutputState[0]
+                val outCount = craftingOutputState[1]
+                InventorySlotUI(
+                    slotIndex = 0,
+                    itemId = outId,
+                    count = outCount,
+                    isSelected = false,
+                    atlasBitmap = atlasBitmap,
+                    onClick = {
+                        MainActivity.nativeTakeCraftingOutput()
+                        inventoryState = MainActivity.nativeGetInventory()
+                        craftingGridState = MainActivity.nativeGetCraftingGrid()
+                        craftingOutputState = MainActivity.nativeGetCraftingOutput()
+                    },
+                    onLongClick = {}
+                )
             }
-
             Text("INVENTORY", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-
+            
             // Main Inventory (27 slots: 3 rows of 9)
             for (row in 0 until 3) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 4.dp)) {
                     for (col in 0 until 9) {
                         val slotIndex = row * 9 + col
-                        InventorySlotUI(slotIndex, inventoryState, selectedSlotIndex) {
+                        val iId = inventoryState[slotIndex * 2]
+                        val iCount = inventoryState[slotIndex * 2 + 1]
+                        InventorySlotUI(
+                            slotIndex = slotIndex, 
+                            itemId = iId,
+                            count = iCount,
+                            isSelected = selectedSlotIndex == slotIndex,
+                            atlasBitmap = atlasBitmap,
+                            onClick = {
+                                if (selectedSlotIndex == null && selectedCraftingSlot == null) {
+                                    selectedSlotIndex = slotIndex
+                                } else if (selectedSlotIndex != null) {
+                                    MainActivity.nativeSwapSlots(selectedSlotIndex!!, slotIndex)
+                                    selectedSlotIndex = null
+                                    inventoryState = MainActivity.nativeGetInventory()
+                                } else if (selectedCraftingSlot != null) {
+                                    MainActivity.nativeSwapCraftingSlot(slotIndex, selectedCraftingSlot!!)
+                                    selectedCraftingSlot = null
+                                    inventoryState = MainActivity.nativeGetInventory()
+                                    craftingGridState = MainActivity.nativeGetCraftingGrid()
+                                    craftingOutputState = MainActivity.nativeGetCraftingOutput()
+                                }
+                            },
+                            onLongClick = {
+                                if (selectedSlotIndex != null && selectedSlotIndex != slotIndex) {
+                                    splitSourceSlot = selectedSlotIndex
+                                    splitSourceType = 0
+                                    splitDestSlot = slotIndex
+                                    splitDestType = 0
+                                    splitAmount = 1
+                                    showSplitDialog = true
+                                } else if (selectedCraftingSlot != null) {
+                                    splitSourceSlot = selectedCraftingSlot
+                                    splitSourceType = 1
+                                    splitDestSlot = slotIndex
+                                    splitDestType = 0
+                                    splitAmount = 1
+                                    showSplitDialog = true
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // Hotbar (9 slots)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (col in 0 until 9) {
+                    val slotIndex = 27 + col
+                    val iId = inventoryState[slotIndex * 2]
+                    val iCount = inventoryState[slotIndex * 2 + 1]
+                    InventorySlotUI(
+                        slotIndex = slotIndex, 
+                        itemId = iId,
+                        count = iCount,
+                        isSelected = selectedSlotIndex == slotIndex,
+                        atlasBitmap = atlasBitmap,
+                        onClick = {
                             if (selectedSlotIndex == null && selectedCraftingSlot == null) {
                                 selectedSlotIndex = slotIndex
                             } else if (selectedSlotIndex != null) {
@@ -462,73 +611,104 @@ fun InventoryScreen(onClose: () -> Unit) {
                                 craftingGridState = MainActivity.nativeGetCraftingGrid()
                                 craftingOutputState = MainActivity.nativeGetCraftingOutput()
                             }
+                        },
+                        onLongClick = {
+                            if (selectedSlotIndex != null && selectedSlotIndex != slotIndex) {
+                                splitSourceSlot = selectedSlotIndex
+                                splitSourceType = 0
+                                splitDestSlot = slotIndex
+                                splitDestType = 0
+                                splitAmount = 1
+                                showSplitDialog = true
+                            } else if (selectedCraftingSlot != null) {
+                                splitSourceSlot = selectedCraftingSlot
+                                splitSourceType = 1
+                                splitDestSlot = slotIndex
+                                splitDestType = 0
+                                splitAmount = 1
+                                showSplitDialog = true
+                            }
                         }
-                    }
+                    )
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Hotbar (9 slots)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (col in 0 until 9) {
-                    val slotIndex = 27 + col
-                    InventorySlotUI(slotIndex, inventoryState, selectedSlotIndex) {
-                        if (selectedSlotIndex == null) {
-                            selectedSlotIndex = slotIndex
-                        } else {
-                            MainActivity.nativeSwapSlots(selectedSlotIndex!!, slotIndex)
-                            selectedSlotIndex = null
-                            inventoryState = MainActivity.nativeGetInventory()
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             Button(onClick = onClose, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) {
                 Text("CLOSE", color = Color.White)
             }
         }
     }
 }
-
 @Composable
-fun InventorySlotUI(slotIndex: Int, inventoryState: IntArray, selectedSlotIndex: Int?, onClick: () -> Unit) {
-    val itemId = inventoryState[slotIndex * 2]
-    val count = inventoryState[slotIndex * 2 + 1]
-    val isSelected = selectedSlotIndex == slotIndex
-
+fun InventorySlotUI(
+    slotIndex: Int, 
+    itemId: Int,
+    count: Int,
+    isSelected: Boolean, 
+    atlasBitmap: ImageBitmap?, 
+    onClick: () -> Unit, 
+    onLongClick: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .size(40.dp)
             .background(if (isSelected) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
             .border(2.dp, if (isSelected) Color.Yellow else Color.Gray, RoundedCornerShape(4.dp))
             .pointerInput(Unit) {
-                detectTapGestures(onPress = { onClick() })
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { onLongClick() }
+                )
             }
     ) {
         if (itemId > 0) {
-            val color = when(itemId) {
-                1 -> Color(0xFF2D912D) // Grass
-                2 -> Color(0xFF785032) // Dirt
-                3 -> Color(0xFF828282) // Stone
-                4 -> Color(0xFF6E4628) // Wood
-                5 -> Color(0xFF1E641E) // Leaves
-                7 -> Color(0xFFA07850) // Planks
-                8 -> Color(0xFFE6D296) // Sand
-                9 -> Color(0xFF5C3A21) // Sticks
-                else -> Color.Gray
+            if (atlasBitmap != null) {
+                val texIndex = when(itemId) {
+                    1 -> 1
+                    2 -> 2
+                    3 -> 3
+                    4 -> 4
+                    5 -> 6
+                    7 -> 4
+                    8 -> 8
+                    9 -> 9
+                    else -> 0
+                }
+                val tileX = texIndex % 16
+                val tileY = texIndex / 16
+                val painter = BitmapPainter(
+                    image = atlasBitmap,
+                    srcOffset = IntOffset(tileX * 16, tileY * 16),
+                    srcSize = IntSize(16, 16),
+                    filterQuality = FilterQuality.None
+                )
+                Image(
+                    painter = painter,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().padding(4.dp),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                val color = when(itemId) {
+                    1 -> Color(0xFF2D912D)
+                    2 -> Color(0xFF785032)
+                    3 -> Color(0xFF828282)
+                    4 -> Color(0xFF6E4628)
+                    5 -> Color(0xFF1E641E)
+                    7 -> Color(0xFFA07850)
+                    8 -> Color(0xFFE6D296)
+                    9 -> Color(0xFF5C3A21)
+                    else -> Color.Gray
+                }
+                Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
             }
-            Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
             Text(text = "$count", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp))
         }
     }
 }
 
 @Composable
-fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onToggleDebug: () -> Unit, onToggleInventory: () -> Unit) {
+fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onToggleDebug: () -> Unit, onToggleInventory: () -> Unit, atlasBitmap: ImageBitmap?) {
     Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         // Top Bar
         Row(
@@ -559,7 +739,6 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
             }
             
             Spacer(modifier = Modifier.weight(1f))
-
             IconButton(
                 onClick = onToggleInventory,
                 modifier = Modifier
@@ -643,43 +822,22 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
                 val invIndex = 27 + i
                 val itemId = inventoryState[invIndex * 2]
                 val count = inventoryState[invIndex * 2 + 1]
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                        .border(2.dp, if (i == selectedSlot) Color.White else Color.Transparent, RoundedCornerShape(4.dp))
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onPress = {
-                                    MainActivity.nativeAction("select_slot_$i")
-                                }
-                            )
-                        }
-                ) {
-                    if (itemId > 0) {
-                        // Very simple display: Text showing item ID (e.g. Grass) and count
-                        // Real textures would require loading the atlas into Compose, but we can do a simple colored block or text for now.
-                        val color = when(itemId) {
-                            1 -> Color(0xFF2D912D) // Grass
-                            2 -> Color(0xFF785032) // Dirt
-                            3 -> Color(0xFF828282) // Stone
-                            4 -> Color(0xFF6E4628) // Wood
-                            5 -> Color(0xFF1E641E) // Leaves
-                            7 -> Color(0xFFA07850) // Planks
-                            8 -> Color(0xFFE6D296) // Sand
-                9 -> Color(0xFF5C3A21) // Sticks
-                            else -> Color.Gray
-                        }
-                        Box(modifier = Modifier.fillMaxSize().padding(4.dp).background(color))
-                        Text(text = "$count", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp))
-                    }
-                }
+                
+                InventorySlotUI(
+                    slotIndex = invIndex,
+                    itemId = itemId,
+                    count = count,
+                    isSelected = (i == selectedSlot),
+                    atlasBitmap = atlasBitmap,
+                    onClick = {
+                        MainActivity.nativeAction("select_slot_$i")
+                    },
+                    onLongClick = {}
+                )
             }
         }
     }
 }
-
-
 @Composable
 fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, onDown: () -> Unit = {}, onUp: () -> Unit = {}) {
     Box(
