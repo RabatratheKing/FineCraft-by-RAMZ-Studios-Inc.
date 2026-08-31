@@ -31,6 +31,7 @@ void initInventory() {
     inventory[29] = {3, 64};
     inventory[30] = {4, 32};
     inventory[31] = {8, 32};
+    inventory[32] = {10, 64};
 }
 
 const BlockMetadata& getBlockMetadata(uint16_t id) {

@@ -62,21 +62,18 @@ class AppState {
 class MainActivity : ComponentActivity() {
   private var currentAppState by mutableStateOf(AppState.MAIN_MENU)
   lateinit var settings: SettingsManager
-  lateinit var musicManager: MusicManager
-
+  
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     settings = SettingsManager(this)
     settings.updateNative()
     MainActivity.nativeInitSave(this.filesDir.absolutePath)
-    musicManager = MusicManager(this)
-
+    
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
         androidx.compose.runtime.LaunchedEffect(Unit) {
-            musicManager.initAndPlay()
-        }
+                    }
         when (currentAppState) {
             AppState.MAIN_MENU -> MainMenu(
                 onContinueClick = { 
@@ -95,18 +92,8 @@ class MainActivity : ComponentActivity() {
                 currentAppState = AppState.MAIN_MENU 
             })
         }
-        val isGenerating by musicManager.isGenerating.collectAsState()
-        val hasError by musicManager.hasError.collectAsState()
-        if (isGenerating) {
-            Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
-                Text("AI is generating background music (Lyria)...", color = Color.White, fontSize = 12.sp, modifier = Modifier.background(Color.Black.copy(alpha=0.6f), RoundedCornerShape(4.dp)).padding(8.dp))
-            }
-        }
-        if (hasError != null) {
-            Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
-                Text(hasError!!, color = Color.Red, fontSize = 12.sp, modifier = Modifier.background(Color.Black.copy(alpha=0.8f), RoundedCornerShape(4.dp)).padding(8.dp))
-            }
-        }
+        
+        
       }
     }
   }
@@ -120,8 +107,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onDestroy() {
     super.onDestroy()
-    musicManager.stop()
-  }
+      }
 
   external fun stringFromJNI(): String
 
@@ -143,7 +129,7 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeSwapSlots(slotA: Int, slotB: Int)
     @JvmStatic external fun nativeGetSelectedHotbarSlot(): Int
     @JvmStatic external fun nativeSetInventoryOpen(open: Boolean)
-    @JvmStatic external fun nativeUpdateSettings(fov: Float, sensitivity: Float, invertY: Boolean, renderDist: Int, graphicsQuality: Int, shadows: Boolean, clouds: Boolean, fog: Boolean, brightness: Float)
+    @JvmStatic external fun nativeUpdateSettings(fov: Float, sensitivity: Float, invertY: Boolean, renderDist: Int, graphicsQuality: Int, shadows: Boolean, clouds: Boolean, fog: Boolean, brightness: Float, viewBobbing: Boolean)
     @JvmStatic external fun nativeInitSave(path: String)
     @JvmStatic external fun nativeHasSave(): Boolean
     @JvmStatic external fun nativeLoadGame()
@@ -240,6 +226,7 @@ fun SettingsMenu(settings: SettingsManager, onBack: () -> Unit) {
     var clouds by remember { mutableStateOf(settings.clouds) }
     var fog by remember { mutableStateOf(settings.fog) }
     var brightness by remember { mutableFloatStateOf(settings.brightness) }
+    var viewBobbing by remember { mutableStateOf(settings.viewBobbing) }
     var uiScale by remember { mutableFloatStateOf(settings.uiScale) }
     var controlOpacity by remember { mutableFloatStateOf(settings.controlOpacity) }
     var crosshairSize by remember { mutableFloatStateOf(settings.crosshairSize) }
@@ -286,10 +273,16 @@ fun SettingsMenu(settings: SettingsManager, onBack: () -> Unit) {
                 Checkbox(checked = clouds, onCheckedChange = { clouds = it; settings.clouds = it })
                 Text("Clouds", color = Color.White)
             }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = fog, onCheckedChange = { fog = it; settings.fog = it })
                 Text("Fog", color = Color.White)
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = viewBobbing, onCheckedChange = { viewBobbing = it; settings.viewBobbing = it })
+                Text("View Bobbing", color = Color.White)
+            }
+
 
             Text("Brightness: %.1f".format(brightness), color = Color.White)
             Slider(value = brightness, onValueChange = { brightness = it; settings.brightness = it }, valueRange = 0.1f..3.0f)
@@ -765,6 +758,15 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
             }
         )
 
+        
+        // Sprint
+        ActionButton(
+            icon = Icons.AutoMirrored.Filled.ArrowForward,
+            modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 160.dp, start = 16.dp),
+            onDown = { MainActivity.nativeAction("sprint_down") },
+            onUp = { MainActivity.nativeAction("sprint_up") }
+        )
+
         // Action Buttons
         Box(
             modifier = Modifier
@@ -789,13 +791,15 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
             ActionButton(
                 icon = Icons.Filled.Add,
                 modifier = Modifier.align(Alignment.CenterStart),
-                onDown = { MainActivity.nativeAction("place") }
+                onDown = { MainActivity.nativeAction("place_down") },
+                onUp = { MainActivity.nativeAction("place_up") }
             )
             // Break
             ActionButton(
                 icon = Icons.Filled.Close,
                 modifier = Modifier.align(Alignment.CenterEnd),
-                onDown = { MainActivity.nativeAction("break") }
+                onDown = { MainActivity.nativeAction("break_down") },
+                onUp = { MainActivity.nativeAction("break_up") }
             )
         }
 

@@ -103,23 +103,32 @@ Java_com_example_MainActivity_nativeAction(JNIEnv* env, jclass clazz, jstring ac
         inputJump = true;
     } else if (strcmp(actionStr, "jump_up") == 0) {
         inputJump = false;
+    } else if (strcmp(actionStr, "sprint_down") == 0) {
+        isSprinting = true;
+    } else if (strcmp(actionStr, "sprint_up") == 0) {
+        isSprinting = false;
     } else if (strcmp(actionStr, "sneak") == 0) {
-        if (isCrouching) {
-            glm::vec3 standingSize = glm::vec3(0.6f, 2.0f, 0.6f);
-            glm::vec3 pos = glm::vec3(playerX, playerY, playerZ);
-            if (!checkCollision(pos, standingSize)) {
-                isCrouching = false;
-            }
-        } else {
+        if (!isCrouching && !isCrawlingState) {
             isCrouching = true;
+        } else if (isCrouching && !isCrawlingState) {
+            isCrouching = false;
+            isCrawlingState = true;
+        } else {
+            // trying to stand from crawling
+            isCrouching = false;
+            isCrawlingState = false;
         }
     } else if (strcmp(actionStr, "debug_fly") == 0) {
         isDebugFly = !isDebugFly;
         playerVelocity = glm::vec3(0.0f);
-    } else if (strcmp(actionStr, "place") == 0) {
-        performRaycast(true);
-    } else if (strcmp(actionStr, "break") == 0) {
-        performRaycast(false);
+    } else if (strcmp(actionStr, "place") == 0 || strcmp(actionStr, "place_down") == 0) {
+        inputPlace = true;
+    } else if (strcmp(actionStr, "place_up") == 0) {
+        inputPlace = false;
+    } else if (strcmp(actionStr, "break") == 0 || strcmp(actionStr, "break_down") == 0) {
+        inputBreak = true;
+    } else if (strcmp(actionStr, "break_up") == 0) {
+        inputBreak = false;
     } else if (strncmp(actionStr, "select_slot_", 12) == 0) {
         int slot = actionStr[12] - '0';
         if (slot >= 0 && slot < HOTBAR_SIZE) {
@@ -131,7 +140,7 @@ Java_com_example_MainActivity_nativeAction(JNIEnv* env, jclass clazz, jstring ac
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_example_MainActivity_nativeUpdateSettings(JNIEnv* env, jclass clazz, jfloat fov, jfloat sensitivity, jboolean invertY, jint renderDist, jint graphicsQuality, jboolean shadows, jboolean clouds, jboolean fog, jfloat brightness) {
+Java_com_example_MainActivity_nativeUpdateSettings(JNIEnv* env, jclass clazz, jfloat fov, jfloat sensitivity, jboolean invertY, jint renderDist, jint graphicsQuality, jboolean shadows, jboolean clouds, jboolean fog, jfloat brightness, jboolean viewBobbing) {
     settingFOV = fov;
     settingSensitivity = sensitivity;
     settingInvertY = invertY;
@@ -141,6 +150,7 @@ Java_com_example_MainActivity_nativeUpdateSettings(JNIEnv* env, jclass clazz, jf
     settingClouds = clouds;
     settingFog = fog;
     settingBrightness = brightness;
+    settingViewBobbing = viewBobbing;
 
     RenderRadius = renderDist;
     MeshRadius = renderDist + 1;

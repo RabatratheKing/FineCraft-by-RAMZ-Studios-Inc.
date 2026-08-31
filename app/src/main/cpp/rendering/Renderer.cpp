@@ -100,6 +100,10 @@ void generateTextureAtlas(GLuint& texID) {
             } else if (tileIndex == 8) { // Sand
                 r = 230; g = 210; b = 150;
                 noise = (rand()%15)-7;
+            } else if (tileIndex == 9) { // Scaffolding (Climbable)
+                r = 180; g = 140; b = 80;
+                if ((x % 4 == 0) || (y % 4 == 0)) { r -= 40; g -= 40; b -= 40; } // grid pattern
+                noise = 0;
             } else {
                 r = 255; g = 0; b = 255; // pink missing tex
             }
@@ -128,6 +132,14 @@ void generateTextureAtlas(GLuint& texID) {
     
     delete[] pixels;
 }
+
+GLuint outlineShaderProgram = 0;
+GLuint outlineVAO = 0;
+GLuint outlineVBO = 0;
+GLuint outlineModelLoc = -1;
+GLuint outlineViewLoc = -1;
+GLuint outlineProjLoc = -1;
+GLuint outlineColorLoc = -1;
 
 void renderLoop() {
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -189,6 +201,7 @@ void renderLoop() {
         lastTime = currentTime;
         
         tickPhysics(dt);
+        tickInteraction(dt);
 
         bool hasWindow = false;
         {
@@ -230,6 +243,37 @@ void renderLoop() {
                 glDeleteShader(skyVS);
                 glDeleteShader(skyFS);
                 
+                
+                GLuint outlineVS = compileShader(GL_VERTEX_SHADER, wireframeVertexShaderSource);
+                GLuint outlineFS = compileShader(GL_FRAGMENT_SHADER, wireframeFragmentShaderSource);
+                outlineShaderProgram = glCreateProgram();
+                glAttachShader(outlineShaderProgram, outlineVS);
+                glAttachShader(outlineShaderProgram, outlineFS);
+                glLinkProgram(outlineShaderProgram);
+                glDeleteShader(outlineVS);
+                glDeleteShader(outlineFS);
+                
+                outlineModelLoc = glGetUniformLocation(outlineShaderProgram, "model");
+                outlineViewLoc = glGetUniformLocation(outlineShaderProgram, "view");
+                outlineProjLoc = glGetUniformLocation(outlineShaderProgram, "projection");
+                outlineColorLoc = glGetUniformLocation(outlineShaderProgram, "u_color");
+                
+                glGenVertexArrays(1, &outlineVAO);
+                glGenBuffers(1, &outlineVBO);
+                glBindVertexArray(outlineVAO);
+                glBindBuffer(GL_ARRAY_BUFFER, outlineVBO);
+                float e = -0.005f;
+                float s = 1.005f;
+                float cubeLines[] = {
+                    e,e,e, s,e,e,  s,e,e, s,e,s,  s,e,s, e,e,s,  e,e,s, e,e,e,
+                    e,s,e, s,s,e,  s,s,e, s,s,s,  s,s,s, e,s,s,  e,s,s, e,s,e,
+                    e,e,e, e,s,e,  s,e,e, s,s,e,  s,e,s, s,s,s,  e,e,s, e,s,s
+                };
+                glBufferData(GL_ARRAY_BUFFER, sizeof(cubeLines), cubeLines, GL_STATIC_DRAW);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+                glEnableVertexAttribArray(0);
+
+
                 generateTextureAtlas(atlasTex);
                 glUseProgram(shaderProgram);
                 glUniform1i(glGetUniformLocation(shaderProgram, "atlas"), 0);
@@ -302,9 +346,9 @@ void renderLoop() {
             glClearColor(horizonColor.r, horizonColor.g, horizonColor.b, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             
-            glm::mat4 projection = glm::perspective(glm::radians(settingFOV), (float)width / (float)height, 0.1f, 100.0f);
+            glm::mat4 projection = glm::perspective(glm::radians(currentFOV), (float)width / (float)height, 0.1f, 100.0f);
             
-            float eyeY = isCrouching ? 1.3f : 1.8f;
+            float eyeY = cameraEyeY;
             glm::vec3 cameraPos = glm::vec3(playerX, playerY + eyeY, playerZ);
             
             glm::vec3 front;
@@ -314,6 +358,14 @@ void renderLoop() {
             glm::vec3 cameraFront = glm::normalize(front);
             
             glm::vec3 cameraUp    = glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+
+            if (settingViewBobbing) {
+                float bobOffset = sin(bobTime) * 0.05f * bobAmount;
+                float bobSway = cos(bobTime * 0.5f) * 0.05f * bobAmount;
+                cameraPos.y += bobOffset;
+                cameraPos += cameraRight * bobSway;
+            }
             
             glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
             glm::mat4 invProjView = glm::inverse(projection * view);
@@ -468,6 +520,45 @@ void renderLoop() {
                 glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
                 glBindVertexArray(rc.VAO);
                 glDrawArrays(GL_TRIANGLES, 0, rc.vertexCount);
+            }
+
+            RaycastHit hit = getTargetBlock();
+            if (hit.hasHit) {
+                glUseProgram(outlineShaderProgram);
+                glUniformMatrix4fv(outlineProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+                glUniformMatrix4fv(outlineViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+                glBindVertexArray(outlineVAO);
+                
+                // 1. Render target block outline (black)
+                glUniform4f(outlineColorLoc, 0.0f, 0.0f, 0.0f, 0.8f);
+                glm::mat4 model = glm::mat4(1.0f);
+                model = glm::translate(model, glm::vec3(hit.bx, hit.by, hit.bz));
+                glUniformMatrix4fv(outlineModelLoc, 1, GL_FALSE, glm::value_ptr(model));
+                glDrawArrays(GL_LINES, 0, 24);
+                
+                // 2. Render placement ghost (white)
+                if (inputPlace && placeCooldown > 0.0f) {
+                    // Do not render if we just placed it and it's on cooldown
+                } else if (!(hit.px == hit.bx && hit.py == hit.by && hit.pz == hit.bz)) {
+                    glUniform4f(outlineColorLoc, 1.0f, 1.0f, 1.0f, 0.5f);
+                    model = glm::mat4(1.0f);
+                    model = glm::translate(model, glm::vec3(hit.px, hit.py, hit.pz));
+                    glUniformMatrix4fv(outlineModelLoc, 1, GL_FALSE, glm::value_ptr(model));
+                    glDrawArrays(GL_LINES, 0, 24);
+                }
+
+                // 3. Render mining progress
+                if (miningProgress > 0.0f && miningProgress < 1.0f) {
+                    glDisable(GL_DEPTH_TEST);
+                    glUniform4f(outlineColorLoc, 1.0f, 0.2f, 0.2f, 0.9f);
+                    model = glm::mat4(1.0f);
+                    model = glm::translate(model, glm::vec3(hit.bx + 0.5f, hit.by + 0.5f, hit.bz + 0.5f));
+                    model = glm::scale(model, glm::vec3(1.0f - miningProgress));
+                    model = glm::translate(model, glm::vec3(-0.5f, -0.5f, -0.5f));
+                    glUniformMatrix4fv(outlineModelLoc, 1, GL_FALSE, glm::value_ptr(model));
+                    glDrawArrays(GL_LINES, 0, 24);
+                    glEnable(GL_DEPTH_TEST);
+                }
             }
 
             eglSwapBuffers(display, surface);

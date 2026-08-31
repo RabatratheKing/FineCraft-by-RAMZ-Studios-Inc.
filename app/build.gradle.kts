@@ -117,8 +117,8 @@ dependencies {
   // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // implementation(libs.coil.compose)
-  implementation(libs.converter.moshi)
+  // implementation(libs.coil.compose)//
+  implementation(libs.converter.moshi)//
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
@@ -128,14 +128,14 @@ dependencies {
   // implementation(libs.firebase.auth)
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
-  // implementation(libs.googleid)
+  // implementation(libs.googleid)//
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
-  implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.logging.interceptor)
-  implementation(libs.moshi.kotlin)
+  implementation(libs.kotlinx.coroutines.core)//
+  implementation(libs.logging.interceptor)//
+  implementation(libs.moshi.kotlin)//
   implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
+  // implementation(libs.play.services.location)//
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

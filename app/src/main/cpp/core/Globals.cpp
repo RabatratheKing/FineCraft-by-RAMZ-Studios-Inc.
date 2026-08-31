@@ -18,6 +18,7 @@ bool isDebugFly = false;
 glm::vec3 playerVelocity(0.0f);
 bool isGrounded = false;
 bool isCrouching = false;
+bool isSprinting = false;
 float inputMoveX = 0.0f;
 float inputMoveY = 0.0f;
 bool inputJump = false;
@@ -37,6 +38,10 @@ std::vector<GPUUploadJob> uploadQueue;
 std::vector<GLuint> deleteQueueVAO;
 std::vector<GLuint> deleteQueueVBO;
 
+float cameraEyeY = 1.8f;
+float bobTime = 0.0f;
+float bobAmount = 0.0f;
+bool settingViewBobbing = true;
 float cameraLookX = 0.0f;
 float cameraLookY = 0.0f;
 
@@ -54,6 +59,7 @@ int RenderRadius = 5;
 int UnloadRadius = 10;
 
 float settingFOV = 75.0f;
+float currentFOV = 75.0f;
 float settingSensitivity = 1.0f;
 bool settingInvertY = false;
 int settingRenderDistance = 5;
@@ -64,3 +70,19 @@ bool settingFog = true;
 float settingBrightness = 1.0f;
 
 int worldSeed = 123456;
+
+bool inputBreak = false;
+bool inputPlace = false;
+float miningProgress = 0.0f;
+int miningTargetX = 0;
+int miningTargetY = 0;
+int miningTargetZ = 0;
+float placeCooldown = 0.0f;
+float breakCooldown = 0.0f;
+const float INTERACTION_REACH = 5.0f;
+
+LocomotionState playerState = LocomotionState::STANDING;
+bool isSubmerged = false;
+bool isInWater = false;
+bool isClimbing = false;
+bool isCrawlingState = false;

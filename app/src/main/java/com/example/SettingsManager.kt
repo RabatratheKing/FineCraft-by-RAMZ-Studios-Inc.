@@ -38,6 +38,10 @@ class SettingsManager(context: Context) {
         get() = prefs.getBoolean("fog", true)
         set(value) { prefs.edit().putBoolean("fog", value).apply(); updateNative() }
 
+    var viewBobbing: Boolean
+        get() = prefs.getBoolean("viewBobbing", true)
+        set(value) { prefs.edit().putBoolean("viewBobbing", value).apply(); updateNative() }
+
     var brightness: Float
         get() = prefs.getFloat("brightness", 1.0f)
         set(value) { prefs.edit().putFloat("brightness", value).apply(); updateNative() }
@@ -55,6 +59,6 @@ class SettingsManager(context: Context) {
         set(value) { prefs.edit().putFloat("crosshairSize", value).apply() }
 
     fun updateNative() {
-        MainActivity.nativeUpdateSettings(fov, sensitivity, invertY, renderDist, graphicsQuality, shadows, clouds, fog, brightness)
+        MainActivity.nativeUpdateSettings(fov, sensitivity, invertY, renderDist, graphicsQuality, shadows, clouds, fog, brightness, viewBobbing)
     }
 }

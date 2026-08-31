@@ -40,6 +40,7 @@ extern bool isDebugFly;
 extern glm::vec3 playerVelocity;
 extern bool isGrounded;
 extern bool isCrouching;
+extern bool isSprinting;
 extern float inputMoveX;
 extern float inputMoveY;
 extern bool inputJump;
@@ -87,6 +88,7 @@ extern int RenderRadius;
 extern int UnloadRadius;
 
 extern float settingFOV;
+extern float currentFOV;
 extern float settingSensitivity;
 extern bool settingInvertY;
 extern int settingRenderDistance;
@@ -96,6 +98,10 @@ extern bool settingClouds;
 extern bool settingFog;
 extern float settingBrightness;
 
+extern float cameraEyeY;
+extern float bobTime;
+extern float bobAmount;
+extern bool settingViewBobbing;
 extern float cameraLookX;
 extern float cameraLookY;
 
@@ -108,3 +114,31 @@ extern float timeOfDay;
 
 
 extern int worldSeed;
+
+extern bool inputBreak;
+extern bool inputPlace;
+extern float miningProgress;
+extern int miningTargetX;
+extern int miningTargetY;
+extern int miningTargetZ;
+extern float placeCooldown;
+extern float breakCooldown;
+extern const float INTERACTION_REACH;
+
+enum class LocomotionState {
+    STANDING,
+    WALKING,
+    SPRINTING,
+    CROUCHING,
+    JUMPING,
+    FALLING,
+    SWIMMING,
+    CRAWLING,
+    CLIMBING,
+    FLYING
+};
+extern LocomotionState playerState;
+extern bool isSubmerged;
+extern bool isInWater;
+extern bool isClimbing;
+extern bool isCrawlingState;
