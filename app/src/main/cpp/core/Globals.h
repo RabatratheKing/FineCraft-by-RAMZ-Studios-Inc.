@@ -135,10 +135,19 @@ enum class LocomotionState {
     SWIMMING,
     CRAWLING,
     CLIMBING,
-    FLYING
+    FLYING,
+    DEAD
 };
 extern LocomotionState playerState;
 extern bool isSubmerged;
 extern bool isInWater;
 extern bool isClimbing;
 extern bool isCrawlingState;
+
+extern float playerHealth;
+extern float playerMaxHealth;
+extern bool isDead;
+extern float damageCooldown;
+extern float fallDistance;
+extern float highestY;
+extern float hurtTime;

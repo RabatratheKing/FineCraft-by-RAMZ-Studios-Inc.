@@ -68,6 +68,7 @@ RaycastHit getTargetBlock() {
 }
 
 void tickInteraction(float dt) {
+    if (isDead) return;
     if (placeCooldown > 0) placeCooldown -= dt;
     if (breakCooldown > 0) breakCooldown -= dt;
 

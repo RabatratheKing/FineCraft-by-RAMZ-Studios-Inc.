@@ -86,3 +86,11 @@ bool isSubmerged = false;
 bool isInWater = false;
 bool isClimbing = false;
 bool isCrawlingState = false;
+
+float playerHealth = 20.0f;
+float playerMaxHealth = 20.0f;
+bool isDead = false;
+float damageCooldown = 0.0f;
+float fallDistance = 0.0f;
+float highestY = 0.0f;
+float hurtTime = 0.0f;

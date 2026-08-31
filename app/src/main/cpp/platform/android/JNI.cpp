@@ -10,6 +10,11 @@
 
 #include "rendering/Renderer.h"
 #include "world/ChunkManager.h"
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
+
+AAssetManager* globalAssetManager = nullptr;
+
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_MainActivity_stringFromJNI(
@@ -193,6 +198,13 @@ Java_com_example_MainActivity_nativeInitSave(JNIEnv* env, jclass clazz, jstring 
     env->ReleaseStringUTFChars(path, pathStr);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeInit(JNIEnv* env, jclass clazz, jobject assetManager, jstring dataDir, jstring cacheDir) {
+    if (assetManager != nullptr) {
+        globalAssetManager = AAssetManager_fromJava(env, assetManager);
+    }
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_MainActivity_nativeHasSave(JNIEnv* env, jclass clazz) {
     return SaveManager::HasSave();
@@ -263,4 +275,77 @@ Java_com_example_MainActivity_nativeGetAtlasPixels(JNIEnv* env, jclass clazz) {
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_MainActivity_nativeMoveItems(JNIEnv* env, jclass clazz, jint srcType, jint srcSlot, jint destType, jint destSlot, jint amount) {
     return moveItems(srcType, srcSlot, destType, destSlot, amount);
+}
+
+extern "C" JNIEXPORT jfloat JNICALL Java_com_example_MainActivity_nativeGetHealth(JNIEnv* env, jclass clazz) {
+    return playerHealth;
+}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_example_MainActivity_nativeGetMaxHealth(JNIEnv* env, jclass clazz) {
+    return playerMaxHealth;
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_example_MainActivity_nativeIsDead(JNIEnv* env, jclass clazz) {
+    return isDead;
+}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_example_MainActivity_nativeGetHurtTime(JNIEnv* env, jclass clazz) {
+    return hurtTime;
+}
+extern "C" JNIEXPORT void JNICALL Java_com_example_MainActivity_nativeRespawn(JNIEnv* env, jclass clazz) {
+    playerHealth = playerMaxHealth;
+    isDead = false;
+    playerVelocity = glm::vec3(0.0f);
+    playerState = LocomotionState::STANDING;
+    isCrouching = false;
+    isSprinting = false;
+    isCrawlingState = false;
+    isInWater = false;
+    isSubmerged = false;
+    isClimbing = false;
+    isGrounded = false;
+    
+    // Explicit camera reset
+    cameraEyeY = 1.8f;
+    bobAmount = 0.0f;
+    bobTime = 0.0f;
+
+    // Reset damage/fall state
+    damageCooldown = 1.0f;
+    hurtTime = 0.0f;
+    fallDistance = 0.0f;
+
+    // Default spawn near origin
+    playerX = 0.5f;
+    playerZ = 0.5f;
+    
+    int spawnY = 15; // default height at (0,0) is usually 14
+    
+    // If chunk at 0,0 is loaded, find true highest block to prevent spawning inside structures
+    {
+        std::lock_guard<std::mutex> lock(worldMutex);
+        if (chunks.find({0, 0}) != chunks.end() && chunks[{0, 0}].state >= ChunkState::Generated) {
+            for (int y = CHUNK_HEIGHT - 1; y >= 0; y--) {
+                uint8_t b = chunks[{0, 0}].data[0][y][0];
+                if (b != 0 && b != 6 && b != 10) { // Not air, water, scaffolding
+                    spawnY = y + 1;
+                    break;
+                }
+            }
+        }
+    }
+    
+    playerY = (float)spawnY + 0.01f;
+    highestY = playerY;
+}
+
+extern uint32_t externalAtlasPixels[256 * 256];
+extern bool useExternalAtlas;
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSetAtlasPixels(JNIEnv* env, jclass clazz, jintArray pixels) {
+    env->GetIntArrayRegion(pixels, 0, 256 * 256, (jint*)externalAtlasPixels);
+    useExternalAtlas = true;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_MainActivity_nativeIsUsingExternalAtlas(JNIEnv* env, jclass clazz) {
+    return useExternalAtlas;
 }

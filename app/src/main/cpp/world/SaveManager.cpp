@@ -164,6 +164,10 @@ namespace SaveManager {
         cameraLookX = 0.0f;
         cameraLookY = 0.0f;
         timeOfDay = 0.0f;
+        playerHealth = playerMaxHealth;
+        isDead = false;
+        playerState = LocomotionState::STANDING;
+        highestY = playerY;
         
         for (int i = 0; i < 36; i++) {
             inventory[i] = {0, 0};

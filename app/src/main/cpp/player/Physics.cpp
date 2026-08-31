@@ -45,8 +45,50 @@ uint8_t getBlockAt(glm::vec3 pos) {
     return 0;
 }
 
+
+void applyDamage(float amount, const char* source) {
+    if (isDead || isDebugFly) return;
+    if (damageCooldown > 0.0f) return;
+    
+    playerHealth -= amount;
+    if (playerHealth <= 0.0f) {
+        playerHealth = 0.0f;
+        isDead = true;
+        playerState = LocomotionState::DEAD;
+    } else {
+        hurtTime = 0.5f;
+        damageCooldown = 0.5f;
+    }
+}
+
 void tickPhysics(float dt) {
     if (dt > 0.1f) dt = 0.1f;
+    
+    if (damageCooldown > 0.0f) damageCooldown -= dt;
+    if (hurtTime > 0.0f) hurtTime -= dt;
+
+    if (isDead) {
+        playerState = LocomotionState::DEAD;
+        playerVelocity.x = 0;
+        playerVelocity.z = 0;
+        // Still apply gravity
+        playerVelocity.y -= 28.0f * dt;
+        glm::vec3 pos(playerX, playerY, playerZ);
+        pos.y += playerVelocity.y * dt;
+        glm::vec3 size(0.6f, 0.6f, 0.6f); // Crawling size for dead player? or just let them fall
+        if (checkCollision(pos, size)) {
+            if (playerVelocity.y < 0) {
+                pos.y = floor(pos.y) + 1.001f;
+            }
+            playerVelocity.y = 0;
+        }
+        playerY = pos.y;
+        
+        // Lower camera
+        cameraEyeY = glm::mix(cameraEyeY, 0.2f, 10.0f * dt);
+        bobAmount = glm::mix(bobAmount, 0.0f, 10.0f * dt);
+        return;
+    }
     float moveMag = glm::length(glm::vec2(inputMoveX, inputMoveY));
 
     // Determine water and climbing state
@@ -296,6 +338,22 @@ void tickPhysics(float dt) {
         playerVelocity.y = 0;
     } else {
         isGrounded = false;
+    }
+    
+    // Fall damage logic
+    if (playerState == LocomotionState::SWIMMING || playerState == LocomotionState::CLIMBING || isDebugFly) {
+        highestY = pos.y;
+    } else if (!isGrounded && playerVelocity.y < 0) {
+        if (pos.y > highestY) highestY = pos.y;
+    } else if (isGrounded) {
+        if (highestY > pos.y) {
+            float fallDist = highestY - pos.y;
+            if (fallDist >= 3.0f) {
+                float damage = fallDist - 3.0f;
+                applyDamage(damage, "fall");
+            }
+        }
+        highestY = pos.y;
     }
 
     playerX = pos.x;

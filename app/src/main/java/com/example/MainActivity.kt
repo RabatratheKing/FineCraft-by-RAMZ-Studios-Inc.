@@ -24,6 +24,11 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+
+import android.content.res.AssetManager
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.drawBehind
@@ -64,7 +69,23 @@ class MainActivity : ComponentActivity() {
   lateinit var settings: SettingsManager
   
   override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
+        super.onCreate(savedInstanceState)
+        
+        try {
+            val inputStream = assets.open("atlas.png")
+            val bmp = android.graphics.BitmapFactory.decodeStream(inputStream)
+            if (bmp != null) {
+                // Ensure it's 256x256
+                val scaledBmp = android.graphics.Bitmap.createScaledBitmap(bmp, 256, 256, false)
+                val pixels = IntArray(256 * 256)
+                scaledBmp.getPixels(pixels, 0, 256, 0, 0, 256, 256)
+                nativeSetAtlasPixels(pixels)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Fallback to C++ procedural generation
+        }
+
     settings = SettingsManager(this)
     settings.updateNative()
     MainActivity.nativeInitSave(this.filesDir.absolutePath)
@@ -119,7 +140,11 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeSurfaceCreated(surface: Surface)
     @JvmStatic external fun nativeSurfaceChanged(width: Int, height: Int)
     @JvmStatic external fun nativeSurfaceDestroyed()
+    
+    @JvmStatic external fun nativeSetAtlasPixels(pixels: IntArray)
+    @JvmStatic external fun nativeIsUsingExternalAtlas(): Boolean
     @JvmStatic external fun nativeGetAtlasPixels(): IntArray?
+
     @JvmStatic external fun nativeMoveItems(srcType: Int, srcSlot: Int, destType: Int, destSlot: Int, amount: Int): Boolean
     
     @JvmStatic external fun nativeCameraLook(dx: Float, dy: Float)
@@ -130,7 +155,16 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeGetSelectedHotbarSlot(): Int
     @JvmStatic external fun nativeSetInventoryOpen(open: Boolean)
     @JvmStatic external fun nativeUpdateSettings(fov: Float, sensitivity: Float, invertY: Boolean, renderDist: Int, graphicsQuality: Int, shadows: Boolean, clouds: Boolean, fog: Boolean, brightness: Float, viewBobbing: Boolean)
-    @JvmStatic external fun nativeInitSave(path: String)
+        
+    @JvmStatic external fun nativeInitSave(dataDir: String)
+    @JvmStatic external fun nativeInit(assetManager: AssetManager, dataDir: String, cacheDir: String)
+
+    @JvmStatic external fun nativeGetHealth(): Float
+    @JvmStatic external fun nativeGetMaxHealth(): Float
+    @JvmStatic external fun nativeIsDead(): Boolean
+    @JvmStatic external fun nativeGetHurtTime(): Float
+    @JvmStatic external fun nativeRespawn()
+
     @JvmStatic external fun nativeHasSave(): Boolean
     @JvmStatic external fun nativeLoadGame()
     @JvmStatic external fun nativeNewGame()
@@ -656,16 +690,32 @@ fun InventorySlotUI(
     ) {
         if (itemId > 0) {
             if (atlasBitmap != null) {
-                val texIndex = when(itemId) {
-                    1 -> 1
-                    2 -> 2
-                    3 -> 3
-                    4 -> 4
-                    5 -> 6
-                    7 -> 4
-                    8 -> 8
-                    9 -> 9
-                    else -> 0
+                val isExt = MainActivity.nativeIsUsingExternalAtlas()
+                val texIndex = if (isExt) {
+                    when(itemId) {
+                        1 -> 1 // Grass Side
+                        2 -> 3 // Dirt
+                        3 -> 4 // Stone
+                        4 -> 15 // Log
+                        5 -> 20 // Leaves
+                        6 -> 56 // Water
+                        7 -> 17 // Planks
+                        8 -> 5 // Sand
+                        9 -> 31 // Scaffolding
+                        else -> 0
+                    }
+                } else {
+                    when(itemId) {
+                        1 -> 1
+                        2 -> 2
+                        3 -> 3
+                        4 -> 4
+                        5 -> 6
+                        7 -> 4
+                        8 -> 8
+                        9 -> 9
+                        else -> 0
+                    }
                 }
                 val tileX = texIndex % 16
                 val tileY = texIndex / 16
@@ -801,6 +851,98 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
                 onDown = { MainActivity.nativeAction("break_down") },
                 onUp = { MainActivity.nativeAction("break_up") }
             )
+        }
+
+        // Health
+        var health by remember { mutableFloatStateOf(MainActivity.nativeGetHealth()) }
+        var maxHealth by remember { mutableFloatStateOf(MainActivity.nativeGetMaxHealth()) }
+        var hurtTime by remember { mutableFloatStateOf(MainActivity.nativeGetHurtTime()) }
+        var isDead by remember { mutableStateOf(MainActivity.nativeIsDead()) }
+        
+        LaunchedEffect(Unit) {
+            while(true) {
+                kotlinx.coroutines.delay(50)
+                health = MainActivity.nativeGetHealth()
+                maxHealth = MainActivity.nativeGetMaxHealth()
+                hurtTime = MainActivity.nativeGetHurtTime()
+                isDead = MainActivity.nativeIsDead()
+            }
+        }
+        
+        if (hurtTime > 0f) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Red.copy(alpha = (hurtTime / 0.5f) * 0.4f)))
+        }
+        
+        Row(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 70.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            val fullHearts = (health / 2).toInt()
+            val halfHeart = (health % 2) >= 1f
+            val maxHearts = (maxHealth / 2).toInt()
+            
+            val isExt = MainActivity.nativeIsUsingExternalAtlas()
+            
+            for (i in 0 until maxHearts) {
+                Box(modifier = Modifier.size(24.dp)) {
+                    if (isExt && atlasBitmap != null) {
+                        // Empty Heart (tile 242)
+                        Image(
+                            painter = BitmapPainter(atlasBitmap, IntOffset(242 % 16 * 16, 242 / 16 * 16), IntSize(16, 16), FilterQuality.None),
+                            contentDescription = null, modifier = Modifier.fillMaxSize()
+                        )
+                        if (i < fullHearts) {
+                            // Full Heart (tile 240)
+                            Image(
+                                painter = BitmapPainter(atlasBitmap, IntOffset(240 % 16 * 16, 240 / 16 * 16), IntSize(16, 16), FilterQuality.None),
+                                contentDescription = null, modifier = Modifier.fillMaxSize()
+                            )
+                        } else if (i == fullHearts && halfHeart) {
+                            // Half Heart (tile 241)
+                            Image(
+                                painter = BitmapPainter(atlasBitmap, IntOffset(241 % 16 * 16, 241 / 16 * 16), IntSize(16, 16), FilterQuality.None),
+                                contentDescription = null, modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    } else {
+                        // Fallback icons
+                        Icon(androidx.compose.material.icons.Icons.Filled.FavoriteBorder, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f), modifier = Modifier.fillMaxSize())
+                        if (i < fullHearts) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Favorite, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.fillMaxSize())
+                        } else if (i == fullHearts && halfHeart) {
+                            Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.5f).clipToBounds()) {
+                                Icon(androidx.compose.material.icons.Icons.Filled.Favorite, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.size(24.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (isDead) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    Text("YOU DIED", color = Color.Red, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                    
+                    Button(
+                        onClick = { MainActivity.nativeRespawn() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                    ) {
+                        Text("RESPAWN", color = Color.White, fontSize = 20.sp)
+                    }
+                    
+                    Button(
+                        onClick = { onPause() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                    ) {
+                        Text("MAIN MENU", color = Color.White, fontSize = 20.sp)
+                    }
+                }
+            }
         }
 
         // Hotbar

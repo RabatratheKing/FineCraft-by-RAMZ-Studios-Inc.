@@ -108,7 +108,7 @@ void buildGreedyMesh(std::vector<float>& vertices, const std::function<uint8_t(i
     };
 
     auto isOpaque = [](uint8_t b) -> bool {
-        return b != 0 && b != 6; // 0: Air, 6: Water
+        return b != 0 && b != 5 && b != 6 && b != 9; // Air, Leaves, Water, Scaffolding are non-opaque
     };
 
     int dims[3] = {CHUNK_SIZE, CHUNK_HEIGHT, CHUNK_SIZE};
@@ -132,16 +132,22 @@ void buildGreedyMesh(std::vector<float>& vertices, const std::function<uint8_t(i
                     
                     if (b1 == b2) {
                         mask[n] = 0;
-                    } else if (isOpaque(b1) && !isOpaque(b2)) {
-                        mask[n] = b1 | (1 << 8); // b1 facing +d
-                    } else if (!isOpaque(b1) && isOpaque(b2)) {
-                        mask[n] = b2 | (2 << 8); // b2 facing -d
-                    } else if (b1 == 6 && b2 == 0) {
-                        mask[n] = b1 | (1 << 8); // water facing +d (surface/side)
-                    } else if (b1 == 0 && b2 == 6) {
-                        mask[n] = b2 | (2 << 8); // water facing -d
                     } else {
-                        mask[n] = 0;
+                        bool draw1 = (b1 != 0 && b1 != 6 && (b2 == 0 || b2 == 5 || b2 == 6 || b2 == 9));
+                        bool draw2 = (b2 != 0 && b2 != 6 && (b1 == 0 || b1 == 5 || b1 == 6 || b1 == 9));
+                        
+                        if (b1 == 6 && b2 == 0) draw1 = true;
+                        if (b2 == 6 && b1 == 0) draw2 = true;
+                        
+                        if (draw1 && !draw2) {
+                            mask[n] = b1 | (1 << 8); 
+                        } else if (!draw1 && draw2) {
+                            mask[n] = b2 | (2 << 8); 
+                        } else if (draw1 && draw2) {
+                            mask[n] = b1 | (1 << 8);
+                        } else {
+                            mask[n] = 0;
+                        }
                     }
                     
                     n++;
