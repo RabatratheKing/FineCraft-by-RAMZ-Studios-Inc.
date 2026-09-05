@@ -5,41 +5,42 @@ InventorySlot inventory[INVENTORY_SIZE];
 int selectedHotbarSlot = 0;
 bool isInventoryOpen = false;
 
-static std::unordered_map<uint16_t, BlockMetadata> blockRegistry = {
-    {0, {0, "Air", 0, false}},
-    {1, {1, "Grass", 64, true}},
-    {2, {2, "Dirt", 64, true}},
-    {3, {3, "Stone", 64, true}},
-    {4, {4, "Wood", 64, true}},
-    {5, {5, "Leaves", 64, true}},
-    {6, {6, "Water", 64, false}}, // Water is not placeable/collectible normally
-    {7, {7, "Planks", 64, true}},
-    {8, {8, "Sand", 64, true}},
-    {9, {9, "Sticks", 64, false}}
-};
 
 void initInventory() {
+    Registry::init();
     for (int i = 0; i < INVENTORY_SIZE; i++) {
         inventory[i].itemId = 0;
         inventory[i].count = 0;
     }
-    // Grass x64, Dirt x64, Stone x64, Wood x32, Sand x32
-    // Hotbar is usually slots 27-35 (last 9 slots)
-    // We'll put them in the hotbar (slots 27 to 31)
-    inventory[27] = {1, 64};
-    inventory[28] = {2, 64};
-    inventory[29] = {3, 64};
-    inventory[30] = {4, 32};
-    inventory[31] = {8, 32};
-    inventory[32] = {10, 64};
+    
+    // Hotbar slots (27-35)
+    inventory[27] = {1, 64}; // Grass
+    inventory[28] = {2, 64}; // Dirt
+    inventory[29] = {3, 64}; // Stone
+    inventory[30] = {4, 64}; // Wood
+    inventory[31] = {5, 64}; // Leaves
+    inventory[32] = {6, 64}; // Water
+    inventory[33] = {7, 64}; // Planks
+    inventory[34] = {8, 64}; // Sand
+    inventory[35] = {9, 64}; // Glass
+    
+    // Top inventory slots for the rest
+    inventory[0] = {10, 64}; // Bricks
+    inventory[1] = {11, 64}; // Gravel
+    inventory[2] = {12, 64}; // Coal Ore
+    inventory[3] = {13, 64}; // Iron Ore
+    inventory[4] = {14, 64}; // Diamond Ore
+    inventory[5] = {15, 64}; // Cobblestone
+    
+    // Additional items
+    inventory[6] = {101, 1}; // Diamond Sword
+    inventory[7] = {102, 1}; // Diamond Pickaxe
+    inventory[8] = {103, 1}; // Wooden Pickaxe
+    inventory[9] = {100, 16}; // Apple
 }
 
-const BlockMetadata& getBlockMetadata(uint16_t id) {
-    auto it = blockRegistry.find(id);
-    if (it != blockRegistry.end()) {
-        return it->second;
-    }
-    return blockRegistry[0]; // Air
+const ItemDefinition& getBlockMetadata(uint16_t id) {
+    return Registry::getItem(id);
 }
 
 bool addItem(uint16_t itemId, uint16_t count) {

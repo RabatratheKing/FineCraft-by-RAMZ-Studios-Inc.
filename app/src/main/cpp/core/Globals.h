@@ -102,6 +102,7 @@ extern float cameraEyeY;
 extern float bobTime;
 extern float bobAmount;
 extern bool settingViewBobbing;
+extern bool settingDebugWorld;
 extern float cameraLookX;
 extern float cameraLookY;
 

@@ -264,12 +264,34 @@ Java_com_example_MainActivity_nativeGetCraftingOutput(JNIEnv* env, jclass clazz)
 extern uint32_t atlasPixelsARGB[256 * 256];
 extern bool atlasGenerated;
 
+uint32_t* externalAtlasPixels = nullptr;
+int externalAtlasWidth = 256;
+int externalAtlasHeight = 256;
+bool useExternalAtlas = false;
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_example_MainActivity_nativeGetAtlasPixels(JNIEnv* env, jclass clazz) {
+    if (useExternalAtlas && externalAtlasPixels != nullptr) {
+        jintArray result = env->NewIntArray(externalAtlasWidth * externalAtlasHeight);
+        env->SetIntArrayRegion(result, 0, externalAtlasWidth * externalAtlasHeight, (const jint*)externalAtlasPixels);
+        return result;
+    }
     if (!atlasGenerated) return nullptr;
     jintArray result = env->NewIntArray(256 * 256);
     env->SetIntArrayRegion(result, 0, 256 * 256, (const jint*)atlasPixelsARGB);
     return result;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_MainActivity_nativeGetAtlasWidth(JNIEnv* env, jclass clazz) {
+    if (useExternalAtlas) return externalAtlasWidth;
+    return 256;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_MainActivity_nativeGetAtlasHeight(JNIEnv* env, jclass clazz) {
+    if (useExternalAtlas) return externalAtlasHeight;
+    return 256;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -336,16 +358,27 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_MainActivity_nativeRespawn(JN
     highestY = playerY;
 }
 
-extern uint32_t externalAtlasPixels[256 * 256];
-extern bool useExternalAtlas;
-
 extern "C" JNIEXPORT void JNICALL
-Java_com_example_MainActivity_nativeSetAtlasPixels(JNIEnv* env, jclass clazz, jintArray pixels) {
-    env->GetIntArrayRegion(pixels, 0, 256 * 256, (jint*)externalAtlasPixels);
+Java_com_example_MainActivity_nativeSetAtlasPixels(JNIEnv* env, jclass clazz, jintArray pixels, jint width, jint height) {
+    if (externalAtlasPixels) delete[] externalAtlasPixels;
+    externalAtlasPixels = new uint32_t[width * height];
+    externalAtlasWidth = width;
+    externalAtlasHeight = height;
+    env->GetIntArrayRegion(pixels, 0, width * height, (jint*)externalAtlasPixels);
     useExternalAtlas = true;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_MainActivity_nativeIsUsingExternalAtlas(JNIEnv* env, jclass clazz) {
     return useExternalAtlas;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_MainActivity_nativeGetItemSprite(JNIEnv* env, jclass clazz, jint itemId) {
+    return Registry::getItemSprite(itemId);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_MainActivity_nativeSetDebugWorld(JNIEnv* env, jclass clazz, jboolean isDebug) {
+    settingDebugWorld = isDebug;
 }

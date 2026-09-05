@@ -1,4 +1,5 @@
 #include "World.h"
+#include "../gameplay/Registry.h"
 #include "../core/Globals.h"
 #include <functional>
 
@@ -36,6 +37,44 @@ void addFace(std::vector<float>& vertices, int x, int y, int z, int faceType, in
 
 void generateChunkData(int cx, int cz, uint8_t tempData[CHUNK_SIZE][CHUNK_HEIGHT][CHUNK_SIZE]) {
     memset(tempData, 0, CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+    
+    if (settingDebugWorld) {
+        static std::vector<uint16_t> orderedBlocks;
+        if (orderedBlocks.empty()) {
+            for (auto& pair : Registry::getAllBlocks()) {
+                if (pair.first != 0) orderedBlocks.push_back(pair.first);
+            }
+            std::sort(orderedBlocks.begin(), orderedBlocks.end());
+        }
+
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int z = 0; z < CHUNK_SIZE; z++) {
+                int wx = cx * CHUNK_SIZE + x;
+                int wz = cz * CHUNK_SIZE + z;
+                
+                int index = (wz / 2) * 16 + (wx / 2);
+                
+                for (int y = 0; y < CHUNK_HEIGHT; y++) {
+                    if (y == 10) {
+                        if (wx >= -2 && wz >= -2 && wx < 32 * 16 && wz < 16 * 16) {
+                            tempData[x][y][z] = 9; // Glass floor
+                        } else {
+                            tempData[x][y][z] = 0;
+                        }
+                    } else if (y == 11) {
+                        if (wx >= 0 && wz >= 0 && wx % 2 == 0 && wz % 2 == 0 && index >= 0 && index < orderedBlocks.size()) {
+                            tempData[x][y][z] = orderedBlocks[index];
+                        } else {
+                            tempData[x][y][z] = 0;
+                        }
+                    } else {
+                        tempData[x][y][z] = 0;
+                    }
+                }
+            }
+        }
+        return;
+    }
     
     auto getTerrainHeight = [](int wx, int wz) -> int {
         return (int)round(sin(wx * 0.03f) * 4.0f + cos(wz * 0.03f) * 4.0f + sin(wx * 0.1f + wz * 0.1f) * 2.0f) + 10;
@@ -89,26 +128,11 @@ void generateChunkData(int cx, int cz, uint8_t tempData[CHUNK_SIZE][CHUNK_HEIGHT
 }
 
 void buildGreedyMesh(std::vector<float>& vertices, const std::function<uint8_t(int,int,int)>& getBlock) {
-    auto getTexIndex = [](int blockType, int faceType) -> float {
-        int texIndex = 0;
-        if (blockType == 1) { 
-            if (faceType == 2) texIndex = 0;
-            else if (faceType == 3) texIndex = 2;
-            else texIndex = 1; 
-        }
-        else if (blockType == 2) { texIndex = 2; }
-        else if (blockType == 3) { texIndex = 3; }
-        else if (blockType == 4) { texIndex = (faceType == 2 || faceType == 3) ? 5 : 4; }
-        else if (blockType == 5) { texIndex = 6; }
-        else if (blockType == 6) { texIndex = 7; }
-        else if (blockType == 7) { texIndex = 4; }
-        else if (blockType == 8) { texIndex = 8; }
-        else { texIndex = 9; }
-        return (float)texIndex;
-    };
+    
 
     auto isOpaque = [](uint8_t b) -> bool {
-        return b != 0 && b != 5 && b != 6 && b != 9; // Air, Leaves, Water, Scaffolding are non-opaque
+        if (b == 0) return false;
+        return Registry::getBlock(b).opaque;
     };
 
     int dims[3] = {CHUNK_SIZE, CHUNK_HEIGHT, CHUNK_SIZE};
@@ -188,7 +212,7 @@ void buildGreedyMesh(std::vector<float>& vertices, const std::function<uint8_t(i
                         else if (d == 1) { faceType = (dir==1) ? 2 : 3; ny = (dir==1) ? 1.0f : -1.0f; }
                         else if (d == 2) { faceType = (dir==1) ? 0 : 1; nz = (dir==1) ? 1.0f : -1.0f; }
                         
-                        float texIndex = getTexIndex(blockType, faceType);
+                        float texIndex = (float)Registry::getBlockTexIndex(blockType, faceType);
                         float ao = 1.0f;
                         
                         float v0[3] = {(float)x[0]-0.5f, (float)x[1]-0.5f, (float)x[2]-0.5f};
@@ -196,21 +220,29 @@ void buildGreedyMesh(std::vector<float>& vertices, const std::function<uint8_t(i
                         float v2[3] = {(float)(x[0]+du[0]+dv[0])-0.5f, (float)(x[1]+du[1]+dv[1])-0.5f, (float)(x[2]+du[2]+dv[2])-0.5f};
                         float v3[3] = {(float)(x[0]+dv[0])-0.5f, (float)(x[1]+dv[1])-0.5f, (float)(x[2]+dv[2])-0.5f};
                         
-                        auto addV = [&](float* vec, float uvX, float uvY) {
+                        auto addV = [&](float* vec) {
+                            float uvX = 0.0f, uvY = 0.0f;
+                            if (d == 0) {
+                                uvX = (dir == 1) ? -vec[2] : vec[2];
+                                uvY = vec[1];
+                            } else if (d == 1) {
+                                uvX = vec[0];
+                                uvY = (dir == 1) ? vec[2] : -vec[2];
+                            } else {
+                                uvX = (dir == 1) ? vec[0] : -vec[0];
+                                uvY = vec[1];
+                            }
                             vertices.insert(vertices.end(), {vec[0], vec[1], vec[2], uvX, uvY, texIndex, nx, ny, nz, ao});
                         };
                         
                         bool flip = (dir == 2);
                         
-                        float fw = (float)du[u];
-                        float fh = (float)dv[v];
-                        
                         if (!flip) {
-                            addV(v0, 0, fh); addV(v1, fw, fh); addV(v2, fw, 0); 
-                            addV(v2, fw, 0); addV(v3, 0, 0); addV(v0, 0, fh);
+                            addV(v0); addV(v1); addV(v2); 
+                            addV(v2); addV(v3); addV(v0);
                         } else {
-                            addV(v0, 0, fh); addV(v3, 0, 0); addV(v2, fw, 0); 
-                            addV(v2, fw, 0); addV(v1, fw, fh); addV(v0, 0, fh);
+                            addV(v0); addV(v3); addV(v2); 
+                            addV(v2); addV(v1); addV(v0);
                         }
                         
                         for (int l = 0; l < h; ++l) {

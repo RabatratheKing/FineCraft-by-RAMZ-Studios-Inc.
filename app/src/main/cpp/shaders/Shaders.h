@@ -52,15 +52,23 @@ const char* fragmentShaderSource = R"(#version 300 es
     
     void main() {
         vec2 tileUV = fract(fragUV);
-        float tx = mod(fragTexIndex, 16.0);
-        float ty = floor(fragTexIndex / 16.0);
-        tileUV = clamp(tileUV, 0.001, 0.999);
-        vec2 atlasUV = (vec2(tx, ty) + tileUV) * 0.0625;
+        float index = round(fragTexIndex);
+        float tx = mod(index, 64.0);
+        float ty = floor(index / 64.0);
+        
+        // Clamp to half a pixel (0.5 / 64.0) to prevent bleeding
+        tileUV = clamp(tileUV, 0.0078125, 0.9921875);
+        vec2 atlasUV = (vec2(tx, ty) + tileUV) * 0.015625;
         vec4 texColor = texture(atlas, atlasUV);
         
-        // Water transparency / tinting
-        if (fragTexIndex == 7.0) {
-            texColor.rgb *= vec3(0.6, 0.8, 1.0);
+        if (texColor.a < 0.1) discard;
+        
+        // Dynamic tinting based on fractional part of texIndex
+        float tintType = round((fragTexIndex - index) * 10.0);
+        if (tintType == 1.0) {
+            texColor.rgb *= vec3(0.44, 0.69, 0.33); // Foliage / Grass green
+        } else if (tintType == 2.0) {
+            texColor.rgb *= vec3(0.2, 0.4, 0.8); // Water blue
         }
         
         // AO: curve it for better look

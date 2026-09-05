@@ -1,4 +1,5 @@
 #include "Raycast.h"
+#include "Registry.h"
 #include "../core/Globals.h"
 #include "Inventory.h"
 #include "../world/World.h"
@@ -137,7 +138,7 @@ void tickInteraction(float dt) {
         }
 
         uint16_t selectedItem = inventory[selectedHotbarSlot + 27].itemId;
-        if (selectedItem != 0 && getBlockMetadata(selectedItem).placeable) {
+        if (selectedItem != 0 && (Registry::getItem(selectedItem).blockId != 0)) {
             int pcx = hit.px / CHUNK_SIZE;
             int pcz = hit.pz / CHUNK_SIZE;
             if (hit.px < 0 && hit.px % CHUNK_SIZE != 0) pcx -= 1;

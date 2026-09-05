@@ -53,106 +53,55 @@ GLuint compileShader(GLenum type, const char* source) {
 
 uint32_t atlasPixelsARGB[256 * 256];
 bool atlasGenerated = false;
-uint32_t externalAtlasPixels[256 * 256];
-bool useExternalAtlas = false;
+extern uint32_t* externalAtlasPixels;
+extern bool useExternalAtlas;
+extern int externalAtlasWidth;
+extern int externalAtlasHeight;
 
 
 void generateTextureAtlas(GLuint& texID) {
-    int size = 256;
-    
-    if (useExternalAtlas) {
-        for(int i = 0; i < size * size; ++i) {
-            atlasPixelsARGB[i] = externalAtlasPixels[i];
-        }
+    LOGI("DIAGNOSTICS: generateTextureAtlas called");
+    int width, height;
+    uint8_t* glPixels = nullptr;
+
+    if (!externalAtlasPixels) {
+        LOGE("FATAL: externalAtlasPixels is NULL. Atlas was not loaded!");
+        // Minimal 2x2 magenta/black texture so we don't crash
+        width = 2; height = 2;
+        glPixels = new uint8_t[16]{
+            255, 0, 255, 255,   0, 0, 0, 255,
+            0, 0, 0, 255,       255, 0, 255, 255
+        };
     } else {
-        // Fallback procedural atlas
-        for(int y=0; y<size; ++y) {
-            for(int x=0; x<size; ++x) {
-                int tx = x / 16;
-                int ty = y / 16;
-                int tileIndex = ty * 16 + tx;
-                
-                int p = (y * size + x) * 4;
-                int noise = (rand() % 20) - 10;
-                int r=255, g=255, b=255;
-                
-                if (tileIndex == 0) { // Grass top
-                    r = 45; g = 145; b = 45;
-                    if ((x+y)%2 == 0) { r-=5; g-=5; }
-                } else if (tileIndex == 1) { // Grass side
-                    if (y % 16 < 3) { r = 45; g = 145; b = 45; noise=(rand()%10)-5;}
-                    else if (y % 16 == 3 && x % 2 == 0) { r = 45; g = 145; b = 45; noise=(rand()%10)-5;}
-                    else { r = 120; g = 80; b = 50; }
-                } else if (tileIndex == 2) { // Dirt
-                    r = 120; g = 80; b = 50;
-                } else if (tileIndex == 3) { // Stone
-                    r = 130; g = 130; b = 130;
-                    if (rand()%10 == 0) { r+=15; g+=15; b+=15; }
-                    if (rand()%10 == 0) { r-=15; g-=15; b-=15; }
-                } else if (tileIndex == 4) { // Wood side
-                    r = 110; g = 70; b = 40;
-                    if (x % 4 == 0) { r-=15; g-=15; b-=15; }
-                    noise = (rand()%10)-5;
-                } else if (tileIndex == 5) { // Wood top
-                    r = 160; g = 120; b = 80;
-                    if ((x%16-8)*(x%16-8) + (y%16-8)*(y%16-8) < 16) { r-=20; g-=20; b-=20; }
-                } else if (tileIndex == 6) { // Leaves
-                    r = 30; g = 100; b = 30;
-                    if ((x+y)%2==0) { r+=15; g+=15; b+=10; }
-                    if ((x*y)%3==0) { r-=10; g-=10; }
-                } else if (tileIndex == 7) { // Water
-                    r = 40; g = 140; b = 210;
-                    noise = (rand()%10)-5;
-                } else if (tileIndex == 8) { // Sand
-                    r = 230; g = 210; b = 150;
-                    noise = (rand()%15)-7;
-                } else if (tileIndex == 9) { // Scaffolding (Climbable)
-                    r = 180; g = 140; b = 80;
-                    if ((x % 4 == 0) || (y % 4 == 0)) { r -= 40; g -= 40; b -= 40; } // grid pattern
-                    noise = 0;
-                } else {
-                    r = 100; g = 100; b = 100; // default gray
-                    if ((x+y)%2 == 0) { r-=10; g-=10; b-=10; }
-                }
-                
-                r = std::min(255, std::max(0, r + noise));
-                g = std::min(255, std::max(0, g + noise));
-                b = std::min(255, std::max(0, b + noise));
-                
-                atlasPixelsARGB[y * size + x] = (255 << 24) | (r << 16) | (g << 8) | b;
-            }
+        width = externalAtlasWidth;
+        height = externalAtlasHeight;
+        LOGI("DIAGNOSTICS: externalAtlasPixels is NON-NULL. width=%d, height=%d", width, height);
+        glPixels = new uint8_t[width * height * 4];
+        for(int i = 0; i < width * height; ++i) {
+            uint32_t c = externalAtlasPixels[i];
+            glPixels[i * 4 + 0] = (c >> 16) & 0xFF; // R
+            glPixels[i * 4 + 1] = (c >> 8) & 0xFF;  // G
+            glPixels[i * 4 + 2] = (c >> 0) & 0xFF;  // B
+            glPixels[i * 4 + 3] = (c >> 24) & 0xFF; // A
         }
     }
-    
-    uint8_t* glPixels = new uint8_t[size * size * 4];
-    for (int i = 0; i < size * size; ++i) {
-        uint32_t c = atlasPixelsARGB[i];
-        glPixels[i*4 + 0] = (c >> 16) & 0xFF; // R
-        glPixels[i*4 + 1] = (c >> 8) & 0xFF;  // G
-        glPixels[i*4 + 2] = (c) & 0xFF;       // B
-        glPixels[i*4 + 3] = (c >> 24) & 0xFF; // A
-    }
-    
-    atlasGenerated = true;
+
+    LOGI("DIAGNOSTICS: atlasTex before glGenTextures = %u", texID);
     glGenTextures(1, &texID);
+    LOGI("DIAGNOSTICS: atlasTex after glGenTextures = %u", texID);
     glBindTexture(GL_TEXTURE_2D, texID);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, glPixels);
-    delete[] glPixels;
+    LOGI("DIAGNOSTICS: Calling glTexImage2D with width=%d, height=%d", width, height);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, glPixels);
+    
+    GLenum err = glGetError();
+    LOGI("DIAGNOSTICS: glGetError after glTexImage2D = 0x%x", err);
+    
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    
-    
+    delete[] glPixels;
 }
-
-GLuint outlineShaderProgram = 0;
-GLuint outlineVAO = 0;
-GLuint outlineVBO = 0;
-GLuint outlineModelLoc = -1;
-GLuint outlineViewLoc = -1;
-GLuint outlineProjLoc = -1;
-GLuint outlineColorLoc = -1;
 
 void renderLoop() {
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -195,6 +144,13 @@ void renderLoop() {
     GLint uUseFogLoc = -1;
     GLint uUseShadowsLoc = -1;
     GLint uUseCloudsLoc = -1;
+    GLuint outlineShaderProgram = 0;
+    GLint outlineModelLoc = -1;
+    GLint outlineViewLoc = -1;
+    GLint outlineProjLoc = -1;
+    GLint outlineColorLoc = -1;
+    GLuint outlineVAO = 0;
+    GLuint outlineVBO = 0;
     GLint uBrightnessLoc = -1;
     GLint skyBrightnessLoc = -1;
     
@@ -244,6 +200,15 @@ void renderLoop() {
                 glAttachShader(shaderProgram, vertexShader);
                 glAttachShader(shaderProgram, fragmentShader);
                 glLinkProgram(shaderProgram);
+                GLint linkSuccess;
+                glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linkSuccess);
+                if (!linkSuccess) {
+                    char infoLog[512];
+                    glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
+                    LOGE("DIAGNOSTICS: Shader Program Link Failed: %s", infoLog);
+                } else {
+                    LOGI("DIAGNOSTICS: Shader Program Linked Successfully");
+                }
                 glDeleteShader(vertexShader);
                 glDeleteShader(fragmentShader);
                 
@@ -289,7 +254,9 @@ void renderLoop() {
 
                 generateTextureAtlas(atlasTex);
                 glUseProgram(shaderProgram);
-                glUniform1i(glGetUniformLocation(shaderProgram, "atlas"), 0);
+                GLint atlasLoc = glGetUniformLocation(shaderProgram, "atlas");
+                LOGI("DIAGNOSTICS: atlas uniform location = %d", atlasLoc);
+                glUniform1i(atlasLoc, 0);
                 
                 projLoc = glGetUniformLocation(shaderProgram, "projection");
                 viewLoc = glGetUniformLocation(shaderProgram, "view");
@@ -407,6 +374,12 @@ void renderLoop() {
             glUseProgram(shaderProgram);
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, atlasTex);
+            
+            static int drawCount = 0;
+            if (drawCount < 5) {
+                LOGI("DIAGNOSTICS: Terrain draw %d. atlasTex = %u", drawCount, atlasTex);
+                drawCount++;
+            }
             
             glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
             glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));

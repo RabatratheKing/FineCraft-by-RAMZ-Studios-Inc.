@@ -42,6 +42,7 @@ float cameraEyeY = 1.8f;
 float bobTime = 0.0f;
 float bobAmount = 0.0f;
 bool settingViewBobbing = true;
+bool settingDebugWorld = false;
 float cameraLookX = 0.0f;
 float cameraLookY = 0.0f;
 

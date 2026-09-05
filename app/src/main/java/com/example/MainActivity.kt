@@ -75,11 +75,11 @@ class MainActivity : ComponentActivity() {
             val inputStream = assets.open("atlas.png")
             val bmp = android.graphics.BitmapFactory.decodeStream(inputStream)
             if (bmp != null) {
-                // Ensure it's 256x256
-                val scaledBmp = android.graphics.Bitmap.createScaledBitmap(bmp, 256, 256, false)
-                val pixels = IntArray(256 * 256)
-                scaledBmp.getPixels(pixels, 0, 256, 0, 0, 256, 256)
-                nativeSetAtlasPixels(pixels)
+                val width = bmp.width
+                val height = bmp.height
+                val pixels = IntArray(width * height)
+                bmp.getPixels(pixels, 0, width, 0, 0, width, height)
+                nativeSetAtlasPixels(pixels, width, height)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
 
     settings = SettingsManager(this)
     settings.updateNative()
+    MainActivity.nativeInit(this.assets, this.filesDir.absolutePath, this.cacheDir.absolutePath)
     MainActivity.nativeInitSave(this.filesDir.absolutePath)
     
     enableEdgeToEdge()
@@ -98,12 +99,19 @@ class MainActivity : ComponentActivity() {
         when (currentAppState) {
             AppState.MAIN_MENU -> MainMenu(
                 onContinueClick = { 
+                    MainActivity.nativeSetDebugWorld(false)
                     MainActivity.nativeLoadGame()
                     currentAppState = AppState.GAMEPLAY 
                 },
                 onNewGameClick = { 
+                    MainActivity.nativeSetDebugWorld(false)
                     MainActivity.nativeNewGame()
                     currentAppState = AppState.GAMEPLAY 
+                },
+                onDebugWorldClick = {
+                    MainActivity.nativeSetDebugWorld(true)
+                    MainActivity.nativeNewGame()
+                    currentAppState = AppState.GAMEPLAY
                 },
                 onSettingsClick = { currentAppState = AppState.SETTINGS }
             )
@@ -141,8 +149,10 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeSurfaceChanged(width: Int, height: Int)
     @JvmStatic external fun nativeSurfaceDestroyed()
     
-    @JvmStatic external fun nativeSetAtlasPixels(pixels: IntArray)
+    @JvmStatic external fun nativeSetAtlasPixels(pixels: IntArray, width: Int, height: Int)
     @JvmStatic external fun nativeIsUsingExternalAtlas(): Boolean
+    @JvmStatic
+    external fun nativeGetItemSprite(itemId: Int): Int
     @JvmStatic external fun nativeGetAtlasPixels(): IntArray?
 
     @JvmStatic external fun nativeMoveItems(srcType: Int, srcSlot: Int, destType: Int, destSlot: Int, amount: Int): Boolean
@@ -150,6 +160,10 @@ class MainActivity : ComponentActivity() {
     @JvmStatic external fun nativeCameraLook(dx: Float, dy: Float)
     @JvmStatic external fun nativeMoveJoystick(x: Float, y: Float)
     @JvmStatic external fun nativeAction(action: String)
+    @JvmStatic external fun nativeSetDebugWorld(isDebug: Boolean)
+    @JvmStatic external fun nativeGetAtlasWidth(): Int
+    @JvmStatic external fun nativeGetAtlasHeight(): Int
+    
     @JvmStatic external fun nativeGetInventory(): IntArray
     @JvmStatic external fun nativeSwapSlots(slotA: Int, slotB: Int)
     @JvmStatic external fun nativeGetSelectedHotbarSlot(): Int
@@ -178,7 +192,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainMenu(onContinueClick: () -> Unit, onNewGameClick: () -> Unit, onSettingsClick: () -> Unit) {
+fun MainMenu(onContinueClick: () -> Unit, onNewGameClick: () -> Unit, onDebugWorldClick: () -> Unit, onSettingsClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -232,6 +246,18 @@ fun MainMenu(onContinueClick: () -> Unit, onNewGameClick: () -> Unit, onSettings
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Text("NEW WORLD", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            }
+            
+            Button(
+                onClick = onDebugWorldClick,
+                modifier = Modifier
+                    .width(280.dp)
+                    .height(56.dp)
+                    .padding(bottom = 8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("DEBUG SHOWCASE", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             }
             
             Button(
@@ -351,7 +377,9 @@ fun GameplayScreen(settings: SettingsManager, onBack: () -> Unit) {
         while (atlasBitmap == null) {
             val pixels = MainActivity.nativeGetAtlasPixels()
             if (pixels != null) {
-                val bmp = android.graphics.Bitmap.createBitmap(pixels, 256, 256, android.graphics.Bitmap.Config.ARGB_8888)
+                val w = MainActivity.nativeGetAtlasWidth()
+                val h = MainActivity.nativeGetAtlasHeight()
+                val bmp = android.graphics.Bitmap.createBitmap(pixels, w, h, android.graphics.Bitmap.Config.ARGB_8888)
                 atlasBitmap = bmp.asImageBitmap()
             } else {
                 kotlinx.coroutines.delay(100)
@@ -691,45 +719,24 @@ fun InventorySlotUI(
         if (itemId > 0) {
             if (atlasBitmap != null) {
                 val isExt = MainActivity.nativeIsUsingExternalAtlas()
-                val texIndex = if (isExt) {
-                    when(itemId) {
-                        1 -> 1 // Grass Side
-                        2 -> 3 // Dirt
-                        3 -> 4 // Stone
-                        4 -> 15 // Log
-                        5 -> 20 // Leaves
-                        6 -> 56 // Water
-                        7 -> 17 // Planks
-                        8 -> 5 // Sand
-                        9 -> 31 // Scaffolding
-                        else -> 0
-                    }
-                } else {
-                    when(itemId) {
-                        1 -> 1
-                        2 -> 2
-                        3 -> 3
-                        4 -> 4
-                        5 -> 6
-                        7 -> 4
-                        8 -> 8
-                        9 -> 9
-                        else -> 0
-                    }
-                }
-                val tileX = texIndex % 16
-                val tileY = texIndex / 16
+                val texIndex = MainActivity.nativeGetItemSprite(itemId)
+                val columns = if (isExt) 64 else 16
+                val tileSize = if (isExt) 64 else 16
+                val tileX = texIndex % columns
+                val tileY = texIndex / columns
                 val painter = BitmapPainter(
                     image = atlasBitmap,
-                    srcOffset = IntOffset(tileX * 16, tileY * 16),
-                    srcSize = IntSize(16, 16),
+                    srcOffset = IntOffset(tileX * tileSize, tileY * tileSize),
+                    srcSize = IntSize(tileSize, tileSize),
                     filterQuality = FilterQuality.None
                 )
+                val isTintedGrass = (itemId == 1 || itemId == 5)
                 Image(
                     painter = painter,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize().padding(4.dp),
-                    contentScale = ContentScale.Fit
+                    contentScale = ContentScale.Fit,
+                    colorFilter = if (isTintedGrass) androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF70B054), androidx.compose.ui.graphics.BlendMode.Modulate) else null
                 )
             } else {
                 val color = when(itemId) {
@@ -885,34 +892,13 @@ fun HUD(settings: SettingsManager, onPause: () -> Unit, debugMode: Boolean, onTo
             
             for (i in 0 until maxHearts) {
                 Box(modifier = Modifier.size(24.dp)) {
-                    if (isExt && atlasBitmap != null) {
-                        // Empty Heart (tile 242)
-                        Image(
-                            painter = BitmapPainter(atlasBitmap, IntOffset(242 % 16 * 16, 242 / 16 * 16), IntSize(16, 16), FilterQuality.None),
-                            contentDescription = null, modifier = Modifier.fillMaxSize()
-                        )
-                        if (i < fullHearts) {
-                            // Full Heart (tile 240)
-                            Image(
-                                painter = BitmapPainter(atlasBitmap, IntOffset(240 % 16 * 16, 240 / 16 * 16), IntSize(16, 16), FilterQuality.None),
-                                contentDescription = null, modifier = Modifier.fillMaxSize()
-                            )
-                        } else if (i == fullHearts && halfHeart) {
-                            // Half Heart (tile 241)
-                            Image(
-                                painter = BitmapPainter(atlasBitmap, IntOffset(241 % 16 * 16, 241 / 16 * 16), IntSize(16, 16), FilterQuality.None),
-                                contentDescription = null, modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    } else {
-                        // Fallback icons
-                        Icon(androidx.compose.material.icons.Icons.Filled.FavoriteBorder, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f), modifier = Modifier.fillMaxSize())
-                        if (i < fullHearts) {
-                            Icon(androidx.compose.material.icons.Icons.Filled.Favorite, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.fillMaxSize())
-                        } else if (i == fullHearts && halfHeart) {
-                            Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.5f).clipToBounds()) {
-                                Icon(androidx.compose.material.icons.Icons.Filled.Favorite, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.size(24.dp))
-                            }
+                    // Always use fallback vector icons for hearts as Faithful atlas doesn't include GUI elements
+                    Icon(androidx.compose.material.icons.Icons.Filled.FavoriteBorder, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f), modifier = Modifier.fillMaxSize())
+                    if (i < fullHearts) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.Favorite, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.fillMaxSize())
+                    } else if (i == fullHearts && halfHeart) {
+                        Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(0.5f).clipToBounds()) {
+                            Icon(androidx.compose.material.icons.Icons.Filled.Favorite, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Red, modifier = Modifier.size(24.dp))
                         }
                     }
                 }
